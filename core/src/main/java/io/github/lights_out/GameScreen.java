@@ -29,12 +29,19 @@ public class GameScreen implements Screen {
 
     // What shows at the top-left for each task (big line, small line)
     private static final String[] OBJECTIVE = {
-        "Find the Flashlight", "Unplug the devices", "Close the windows", "Lock the front and back doors",
-        "Stop the rain water", "Stop the leaks", "Store the emergency kit", "Get to the storage room"
+        "Find the Flashlight", "Close the windows", "Stop the leaks", "Unplug the devices",
+        "Lock the front and back doors", "Stop the rain water", "Store the emergency kit", "Get to the storage room"
     };
     private static final String[] OBJECTIVE_INFO = {
-        "in the Kitchen drawers", "around the house", "all of them", "find the keys first",
-        "coming in under the door", "use the buckets", "and some supplies", "before time runs out"
+        "in the Kitchen drawers", "all of them", "use the buckets", "around the house",
+        "find the keys first", "coming in under the door", "and some supplies", "before time runs out"
+    };
+
+    // What you say when you grab something sharp
+    private static final String[] OUCH = {
+        "Ouch! That's sharp!",
+        "Ah! I cut myself. Careful...",
+        "Ow! Maybe I should move the other things first."
     };
 
     private final Main game;
@@ -55,13 +62,14 @@ public class GameScreen implements Screen {
     private int currentTask;
     private boolean flashlightFound = false;
     private float lightLevel = 0f;   // 0 = rooms as they were, 1 = lighter (flashlight found)
-    private int mistakes = 0;        // counts wrong clicks (the entity will use this later)
+    private int mistakes = 0;        // counts times you got hurt (the entity will use this later)
+    private int ouchIndex = 0;
 
     public GameScreen(Main game, int startTask) {
         this.game = game;
         this.currentTask = Math.min(startTask, OBJECTIVE.length - 1);
 
-        // the flashlight is hidden in a random drawer (0 or 1)
+        // the flashlight is buried in a random drawer (0 or 1)
         drawers = new DrawerView(MathUtils.random(1));
 
         if (startTask >= 1) {
@@ -118,8 +126,8 @@ public class GameScreen implements Screen {
         fadingOut = true;
     }
 
-    /** The player clicked an item inside a drawer. */
-    private void pickItem(Item item) {
+    /** The player grabbed an item inside a drawer. */
+    private void onGrab(Item item) {
         if (item.getName().equals("flashlight")) {
             drawers.takeFlashlight();
             drawers.close();
@@ -127,15 +135,13 @@ public class GameScreen implements Screen {
             currentTask = Math.max(currentTask, 1);
             dialogue.say("Found it! Come on, turn on...",
                 "The battery is almost dead. It barely lights anything.");
-        } else if (flashlightFound) {
-            dialogue.say("I don't need this right now.");
         } else if (item.isHazard()) {
             mistakes++;
-            dialogue.say("Ouch! That's sharp. I need to be careful.");
-        } else {
-            mistakes++;
-            dialogue.say("Not that. Keep looking for the flashlight.");
+            drawers.hurt();
+            dialogue.say(OUCH[ouchIndex % OUCH.length]);
+            ouchIndex++;
         }
+        // harmless items (keys, pills) can be moved with no penalty
     }
 
     @Override
@@ -151,6 +157,7 @@ public class GameScreen implements Screen {
         }
 
         dialogue.update(delta);
+        drawers.update(delta);
         if (flashlightFound && lightLevel < 1f) {
             lightLevel = Math.min(1f, lightLevel + delta * LIGHT_SPEED);
         }
@@ -190,16 +197,27 @@ public class GameScreen implements Screen {
         leftReveal += (leftAim - leftReveal) * smooth;
         rightReveal += (rightAim - rightReveal) * smooth;
 
-        Gdx.graphics.setSystemCursor((hs != null || overLeft || overRight || hoverItem != null)
-            ? Cursor.SystemCursor.Hand
-            : Cursor.SystemCursor.Arrow);
+        Gdx.graphics.setSystemCursor(
+            (hs != null || overLeft || overRight || hoverItem != null || drawers.isDragging())
+                ? Cursor.SystemCursor.Hand
+                : Cursor.SystemCursor.Arrow);
 
-        // clicks
-        if (!busy && Gdx.input.justTouched()) {
-            if (drawerOpen) {
-                if (hoverItem != null) pickItem(hoverItem);
-                else if (!drawers.insidePanel(mouse.x, mouse.y)) drawers.close();
-            } else if (hs != null) {
+        // clicks and dragging
+        if (drawerOpen && !busy) {
+            if (Gdx.input.justTouched()) {
+                if (hoverItem != null) {
+                    Item grabbed = drawers.grab(mouse.x, mouse.y);
+                    if (grabbed != null) onGrab(grabbed);
+                } else if (!drawers.insidePanel(mouse.x, mouse.y)) {
+                    drawers.close();
+                }
+            }
+            if (drawers.isDragging()) {
+                if (Gdx.input.isTouched()) drawers.dragTo(mouse.x, mouse.y);
+                else drawers.release();
+            }
+        } else if (!busy && Gdx.input.justTouched()) {
+            if (hs != null) {
                 if (hs.getAction() != null) {
                     drawers.open(hs.getAction().equals("drawer0") ? 0 : 1);
                 } else {
@@ -332,3 +350,4 @@ public class GameScreen implements Screen {
         shapes.dispose();
     }
 }
+

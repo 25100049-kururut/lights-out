@@ -350,4 +350,3 @@ public class GameScreen implements Screen {
         shapes.dispose();
     }
 }
-

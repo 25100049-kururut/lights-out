@@ -7,9 +7,9 @@ public class GameWindow {
     public static final int MAX_LEVEL = 4;
 
     private final String roomId;
-    private final Rectangle rect; // where the window is in the room picture (the click area)
+    private final Rectangle rect; // where the CLOSED window sits in the room (world units)
     private int level = 0;        // what the window really is
-    private float shown = 0f;     // what the minigame draws (moves slowly toward level)
+    private float shown = 0f;     // what is drawn (moves slowly toward level)
 
     public GameWindow(String roomId, float x, float y, float w, float h) {
         this.roomId = roomId;
@@ -34,8 +34,12 @@ public class GameWindow {
     public String getRoomId() { return roomId; }
     public Rectangle getRect() { return rect; }
 
-    /** True if the point is on the window in the room picture. */
+    /** Click area: the window, a bit wider and taller while the shutters are swung open. */
     public boolean contains(float px, float py) {
-        return rect.contains(px, py);
+        float open = shown / MAX_LEVEL;
+        float extraX = rect.width * 0.35f * open;
+        float extraTop = rect.height * 0.10f * open;
+        return px >= rect.x - extraX && px <= rect.x + rect.width + extraX
+            && py >= rect.y && py <= rect.y + rect.height + extraTop;
     }
 }

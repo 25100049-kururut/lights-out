@@ -1,6 +1,5 @@
 package io.github.lights_out;
 
-
 import com.badlogic.gdx.graphics.Color;
 import com.badlogic.gdx.graphics.Pixmap;
 import com.badlogic.gdx.graphics.Texture;
@@ -9,7 +8,6 @@ import com.badlogic.gdx.graphics.g2d.SpriteBatch;
 import com.badlogic.gdx.math.MathUtils;
 import com.badlogic.gdx.utils.Array;
 
-
 /** The screen that shows what is inside a drawer. Items are dark, can be dragged, and some are sharp. */
 public class DrawerView {
     private static final float PANEL_X = 190f;
@@ -17,23 +15,19 @@ public class DrawerView {
     private static final float PANEL_W = 900f;
     private static final float PANEL_H = 420f;
 
-
     private static final float ITEM_DARKNESS = 0.6f; // lower = darker items = harder to find
     private static final float HURT_TIME = 0.4f;     // how long the red flash lasts
-
 
     private final Array<Item> drawer0 = new Array<>();
     private final Array<Item> drawer1 = new Array<>();
     private final Item flashlight;
     private final Texture pixel;
 
-
     private boolean loaded = false;
     private int open = -1;       // -1 = closed, 0 or 1 = which drawer is open
     private Item dragged = null; // the item being dragged right now
     private float grabDX, grabDY;
     private float hurtTimer = 0f;
-
 
     /** flashlightDrawer: 0 or 1, the drawer the flashlight is buried in. */
     public DrawerView(int flashlightDrawer) {
@@ -43,12 +37,10 @@ public class DrawerView {
         pixel = new Texture(pm);
         pm.dispose();
 
-
         Item f = buildBuriedDrawer(flashlightDrawer == 0 ? drawer0 : drawer1);
         buildDecoyDrawer(flashlightDrawer == 0 ? drawer1 : drawer0);
         flashlight = f;
     }
-
 
     /**
      * The flashlight is at the bottom of the pile. The sharp things lie on top of it,
@@ -67,14 +59,12 @@ public class DrawerView {
         return f;
     }
 
-
     /** The other drawer: no flashlight, just a few things. */
     private void buildDecoyDrawer(Array<Item> list) {
         list.add(new Item("fork", "fork.png", true, 800, 330, 230, 60));
         list.add(new Item("key", "key_2.png", false, 460, 400, 150, 25));
         list.add(new Item("key", "key_3.png", false, 600, 280, 150, -40));
     }
-
 
     private void ensureLoaded() {
         if (loaded) return;
@@ -83,11 +73,9 @@ public class DrawerView {
         loaded = true;
     }
 
-
     private Array<Item> current() {
         return open == 0 ? drawer0 : drawer1;
     }
-
 
     public void open(int drawer) {
         ensureLoaded();
@@ -95,34 +83,27 @@ public class DrawerView {
         dragged = null;
     }
 
-
     public void close() {
         open = -1;
         dragged = null;
     }
 
-
     public boolean isOpen() { return open >= 0; }
     public boolean isDragging() { return dragged != null; }
 
-
     public void takeFlashlight() { flashlight.setVisible(false); }
-
 
     /** Call when the player gets hurt: flashes the screen red. */
     public void hurt() { hurtTimer = HURT_TIME; }
-
 
     public void update(float delta) {
         if (hurtTimer > 0f) hurtTimer = Math.max(0f, hurtTimer - delta);
     }
 
-
     public boolean insidePanel(float x, float y) {
         return x >= PANEL_X - 12 && x <= PANEL_X + PANEL_W + 12
             && y >= PANEL_Y - 12 && y <= PANEL_Y + PANEL_H + 12;
     }
-
 
     /** The item under the mouse (the top-most one), or null. */
     public Item itemAt(float x, float y) {
@@ -134,7 +115,6 @@ public class DrawerView {
         }
         return null;
     }
-
 
     /** Picks up the item under the mouse and brings it to the front. Returns it (or null). */
     public Item grab(float x, float y) {
@@ -149,7 +129,6 @@ public class DrawerView {
         return it;
     }
 
-
     public void dragTo(float x, float y) {
         if (dragged == null) return;
         float nx = MathUtils.clamp(x + grabDX, PANEL_X + 20, PANEL_X + PANEL_W - 20);
@@ -157,19 +136,15 @@ public class DrawerView {
         dragged.setPosition(nx, ny);
     }
 
-
     public void release() { dragged = null; }
-
 
     public void render(SpriteBatch batch, BitmapFont font) {
         if (open < 0) return;
         batch.begin();
 
-
         // dim everything behind
         batch.setColor(0f, 0f, 0f, 0.82f);
         batch.draw(pixel, 0, 0, Main.WORLD_WIDTH, Main.WORLD_HEIGHT);
-
 
         // drawer frame and inside
         batch.setColor(0.22f, 0.15f, 0.10f, 1f);
@@ -177,10 +152,8 @@ public class DrawerView {
         batch.setColor(0.09f, 0.09f, 0.11f, 1f);
         batch.draw(pixel, PANEL_X, PANEL_Y, PANEL_W, PANEL_H);
 
-
         // items
         for (Item it : current()) it.draw(batch, ITEM_DARKNESS);
-
 
         // red flash when hurt
         if (hurtTimer > 0f) {
@@ -188,7 +161,6 @@ public class DrawerView {
             batch.draw(pixel, 0, 0, Main.WORLD_WIDTH, Main.WORLD_HEIGHT);
         }
         batch.setColor(Color.WHITE);
-
 
         // labels (above the drawer, so the dialogue bar never covers them)
         font.getData().setScale(1.5f);
@@ -201,10 +173,8 @@ public class DrawerView {
         font.getData().setScale(1f);
         font.setColor(Color.WHITE);
 
-
         batch.end();
     }
-
 
     public void dispose() {
         pixel.dispose();

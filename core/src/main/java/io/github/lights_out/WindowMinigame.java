@@ -1,6 +1,5 @@
 package io.github.lights_out;
 
-
 import com.badlogic.gdx.graphics.Color;
 import com.badlogic.gdx.graphics.Pixmap;
 import com.badlogic.gdx.graphics.Texture;
@@ -9,11 +8,9 @@ import com.badlogic.gdx.graphics.g2d.GlyphLayout;
 import com.badlogic.gdx.graphics.g2d.SpriteBatch;
 import com.badlogic.gdx.math.MathUtils;
 
-
 /** The "click when the line is in the green" minigame for closing a window. */
 public class WindowMinigame {
     public enum Result { NONE, SUCCESS, FAIL }
-
 
     // The window in the center of the screen (where the CLOSED window sits)
     private static final float WIN_X = 565f, WIN_Y = 265f, WIN_W = 150f, WIN_H = 335f;
@@ -24,7 +21,6 @@ public class WindowMinigame {
     private static final float BAR_X = 410f, BAR_Y = 185f, BAR_W = 340f, BAR_H = 24f;
     private static final float BTN_X = 770f, BTN_Y = 179f, BTN_W = 100f, BTN_H = 36f;
 
-
     private static final float GREEN_START = 0.30f;  // size of the green part at the start (0 to 1)
     private static final float GREEN_SHRINK = 0.60f; // after a hit the green becomes this much of its size (smaller = shrinks more)
     private static final float GREEN_MIN = 0.04f;    // the green never gets smaller than this
@@ -32,17 +28,14 @@ public class WindowMinigame {
     private static final float FLASH_TIME = 0.35f;   // how long the bar flashes after a click
     private static final float FINISH_DELAY = 1.0f;  // pause after the window closes, before leaving
 
-
     private final Texture pixel;
     private final Texture circle;
     private final GlyphLayout layout = new GlyphLayout();
-
 
     private GameWindow target;
     private boolean active = false;
     private boolean finishing = false;
     private float finishTimer = 0f;
-
 
     private float linePos = 0f;   // 0 to 1 along the bar
     private float lineDir = 1f;
@@ -53,14 +46,12 @@ public class WindowMinigame {
     private float flash = 0f;
     private boolean flashGood = true;
 
-
     public WindowMinigame() {
         Pixmap pm = new Pixmap(1, 1, Pixmap.Format.RGBA8888);
         pm.setColor(Color.WHITE);
         pm.fill();
         pixel = new Texture(pm);
         pm.dispose();
-
 
         // soft white circle
         int size = 256;
@@ -78,7 +69,6 @@ public class WindowMinigame {
         cp.dispose();
     }
 
-
     public void open(GameWindow window) {
         target = window;
         active = true;
@@ -91,23 +81,19 @@ public class WindowMinigame {
         greenStart = MathUtils.random(0.04f, 1f - greenWidth - 0.04f);
     }
 
-
     public void close() {
         active = false;
         finishing = false;
         target = null;
     }
 
-
     public boolean isActive() { return active; }
     public GameWindow getTarget() { return target; }
-
 
     public boolean buttonContains(float x, float y) {
         return active && !finishing
             && x >= BTN_X && x <= BTN_X + BTN_W && y >= BTN_Y && y <= BTN_Y + BTN_H;
     }
-
 
     /**
      * The player pressed the button.
@@ -117,7 +103,6 @@ public class WindowMinigame {
      */
     public Result press() {
         if (!active || finishing || target == null) return Result.NONE;
-
 
         boolean good = linePos >= greenStart && linePos <= greenStart + greenWidth;
         if (good) {
@@ -129,11 +114,9 @@ public class WindowMinigame {
             if (historyCount > 0) greenWidth = sizeHistory[--historyCount]; // go back to the size it had before
         }
 
-
         flash = FLASH_TIME;
         flashGood = good;
         moveGreen();
-
 
         if (target.isClosed()) {
             finishing = true;
@@ -141,7 +124,6 @@ public class WindowMinigame {
         }
         return good ? Result.SUCCESS : Result.FAIL;
     }
-
 
     private void moveGreen() {
         float old = greenStart;
@@ -152,11 +134,9 @@ public class WindowMinigame {
         }
     }
 
-
     public void update(float delta) {
         if (!active) return;
         if (flash > 0f) flash = Math.max(0f, flash - delta);
-
 
         if (finishing) {
             finishTimer -= delta;
@@ -164,27 +144,22 @@ public class WindowMinigame {
             return;
         }
 
-
         linePos += lineDir * LINE_SPEED * delta;
         if (linePos >= 1f) { linePos = 1f; lineDir = -1f; }
         else if (linePos <= 0f) { linePos = 0f; lineDir = 1f; }
     }
 
-
     public void render(SpriteBatch batch, BitmapFont font, WindowFrames frames, float mouseX, float mouseY) {
         if (!active || target == null) return;
         batch.begin();
-
 
         // dim everything behind
         batch.setColor(0f, 0f, 0f, 0.85f);
         batch.draw(pixel, 0, 0, Main.WORLD_WIDTH, Main.WORLD_HEIGHT);
 
-
         // faint white circle behind the window, so the black window can be seen
         batch.setColor(1f, 1f, 1f, CIRCLE_ALPHA);
         batch.draw(circle, CIRCLE_X - CIRCLE_SIZE / 2f, CIRCLE_Y - CIRCLE_SIZE / 2f, CIRCLE_SIZE, CIRCLE_SIZE);
-
 
         // title
         font.getData().setScale(2f);
@@ -192,10 +167,8 @@ public class WindowMinigame {
         layout.setText(font, "Close the window!");
         font.draw(batch, "Close the window!", (Main.WORLD_WIDTH - layout.width) / 2f, 700);
 
-
         // the window, in the center
         frames.draw(batch, target.getShown(), WIN_X, WIN_Y, WIN_W, WIN_H, 1f);
-
 
         // bar: border, background, green part
         batch.setColor(0.4f, 0.35f, 0.35f, 1f);
@@ -205,7 +178,6 @@ public class WindowMinigame {
         batch.setColor(0.15f, 0.75f, 0.25f, 1f);
         batch.draw(pixel, BAR_X + greenStart * BAR_W, BAR_Y, greenWidth * BAR_W, BAR_H);
 
-
         // flash after a click (green = hit, red = miss)
         if (flash > 0f) {
             if (flashGood) batch.setColor(0.3f, 1f, 0.4f, 0.5f * flash / FLASH_TIME);
@@ -213,11 +185,9 @@ public class WindowMinigame {
             batch.draw(pixel, BAR_X, BAR_Y, BAR_W, BAR_H);
         }
 
-
         // the moving line
         batch.setColor(1f, 1f, 1f, 1f);
         batch.draw(pixel, BAR_X + linePos * BAR_W - 2f, BAR_Y - 6f, 4f, BAR_H + 12f);
-
 
         // the button beside the bar
         boolean hover = buttonContains(mouseX, mouseY);
@@ -231,13 +201,11 @@ public class WindowMinigame {
         batch.draw(pixel, BTN_X + BTN_W - 2, BTN_Y, 2, BTN_H);
         batch.setColor(Color.WHITE);
 
-
         font.getData().setScale(1.3f);
         font.setColor(Color.WHITE);
         layout.setText(font, "CLOSE");
         font.draw(batch, "CLOSE", BTN_X + (BTN_W - layout.width) / 2f,
             BTN_Y + (BTN_H + layout.height) / 2f);
-
 
         // hint
         font.getData().setScale(1.1f);
@@ -246,18 +214,13 @@ public class WindowMinigame {
         layout.setText(font, hint);
         font.draw(batch, hint, (Main.WORLD_WIDTH - layout.width) / 2f, 166);
 
-
         font.getData().setScale(1f);
         font.setColor(Color.WHITE);
         batch.end();
     }
-
 
     public void dispose() {
         pixel.dispose();
         circle.dispose();
     }
 }
-
-
-

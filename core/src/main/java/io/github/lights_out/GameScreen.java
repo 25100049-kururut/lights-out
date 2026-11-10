@@ -54,6 +54,13 @@ public class GameScreen implements Screen {
         "Come on, focus... it's swinging open!"
     };
 
+    // What you say when a water drop is missed
+    private static final String[] SPILL = {
+        "Ugh! It spilled on the floor!",
+        "No! I missed it!",
+        "The floor is getting soaked!"
+    };
+
     private final Main game;
     private final FitViewport viewport = new FitViewport(Main.WORLD_WIDTH, Main.WORLD_HEIGHT);
     private final ShapeRenderer shapes = new ShapeRenderer();
@@ -67,12 +74,16 @@ public class GameScreen implements Screen {
     private final WindowMinigame minigame = new WindowMinigame();
     private boolean windowsActive = false;
 
+    private final LeakMinigame leakGame = new LeakMinigame();
+    private final Array<Leak> leaks = new Array<>();
+
     private Room current;
     private String pendingRoom = null;
     private boolean fadingOut = false;
     private float fade = 0f;
     private float leftReveal = 0f;   // 0 = shadow, 1 = shadow gone and light on
     private float rightReveal = 0f;
+    private float time = 0f;
 
     private int currentTask;
     private boolean flashlightFound = false;
@@ -80,6 +91,7 @@ public class GameScreen implements Screen {
     private int mistakes = 0;        // counts mistakes (the entity will use this later)
     private int ouchIndex = 0;
     private int missIndex = 0;
+    private int spillIndex = 0;
 
     public GameScreen(Main game, int startTask) {
         this.game = game;
@@ -99,6 +111,9 @@ public class GameScreen implements Screen {
                 w.setLevel(startTask >= 2 ? 0 : START_OPEN);
                 w.snap();
             }
+        }
+        if (startTask >= 3) {
+            for (Leak l : leaks) l.setDone(true);
         }
 
         current = rooms.get("bedroom");
@@ -149,6 +164,12 @@ public class GameScreen implements Screen {
         windows.add(new GameWindow("living", 412, 352, 173, 200));
         windows.add(new GameWindow("living", 702, 352, 179, 200));
         windows.add(new GameWindow("kitchen", 568, 412, 130, 64));
+
+        // The puddles (leaks): room, x of the middle, y of the middle, width
+        leaks.add(new Leak("kitchen", 520, 195, 120));
+        leaks.add(new Leak("living", 707, 187, 125));
+        leaks.add(new Leak("storage1", 347, 161, 115));
+        leaks.add(new Leak("storage2", 567, 168, 115));
     }
 
     private void goTo(String roomId) {
@@ -162,6 +183,12 @@ public class GameScreen implements Screen {
         return n;
     }
 
+    private int leaksLeft() {
+        int n = 0;
+        for (Leak l : leaks) if (!l.isDone()) n++;
+        return n;
+    }
+
     /** A window of the current room under the mouse. wantClosed: look for closed or open ones. */
     private GameWindow windowAt(float x, float y, boolean wantClosed) {
         if (!windowsActive) return null;
@@ -169,6 +196,15 @@ public class GameScreen implements Screen {
             if (w.getRoomId().equals(current.getId()) && w.isClosed() == wantClosed && w.contains(x, y)) {
                 return w;
             }
+        }
+        return null;
+    }
+
+    /** A puddle (or the bucket that replaced it) of the current room under the mouse. */
+    private Leak leakAt(float x, float y) {
+        if (currentTask < 2) return null;
+        for (Leak l : leaks) {
+            if (l.getRoomId().equals(current.getId()) && l.contains(x, y)) return l;
         }
         return null;
     }
@@ -210,7 +246,7 @@ public class GameScreen implements Screen {
                 if (closedCount() == windows.size) {
                     currentTask = Math.max(currentTask, 2);
                     dialogue.say("That's all of them. The wind can't get in now.",
-                        "...Wait. What's that dripping sound?");
+                        "...Wait. What's that dripping sound? There are puddles everywhere!");
                 } else {
                     dialogue.say("That one's shut. " + (windows.size - closedCount()) + " more to go.");
                 }
@@ -226,7 +262,9 @@ public class GameScreen implements Screen {
     public void render(float delta) {
         // ESC closes the minigame or the drawer first, otherwise goes back to the menu
         if (Gdx.input.isKeyJustPressed(Input.Keys.ESCAPE)) {
-            if (minigame.isActive()) {
+            if (leakGame.isActive()) {
+                leakGame.close();
+            } else if (minigame.isActive()) {
                 minigame.close();
             } else if (drawers.isOpen()) {
                 drawers.close();
@@ -236,12 +274,38 @@ public class GameScreen implements Screen {
             }
         }
 
+        time += delta;
+        viewport.apply();
+        Vector2 mouse = viewport.unproject(new Vector2(Gdx.input.getX(), Gdx.input.getY()));
+
         dialogue.update(delta);
         drawers.update(delta);
         minigame.update(delta);
+        leakGame.update(delta, mouse.x);
         for (GameWindow w : windows) w.update(delta);
         if (flashlightFound && lightLevel < 1f) {
             lightLevel = Math.min(1f, lightLevel + delta * LIGHT_SPEED);
+        }
+
+        // missed drops in the leak minigame: the fail effect
+        int misses = leakGame.takeMisses();
+        if (misses > 0) {
+            mistakes += misses;
+            dialogue.say(SPILL[spillIndex % SPILL.length]);
+            spillIndex++;
+        }
+
+        // the 20th drop was caught: this leak is stopped
+        if (leakGame.takeFinished()) {
+            Leak l = leakGame.getTarget();
+            if (l != null) l.setDone(true);
+            if (leaksLeft() == 0) {
+                currentTask = Math.max(currentTask, 3);
+                dialogue.say("That's the last leak. The floor is finally safe.",
+                    "I should unplug everything before the power comes back.");
+            } else {
+                dialogue.say("Leak stopped. " + leaksLeft() + " more to go.");
+            }
         }
 
         // fade between rooms
@@ -259,11 +323,10 @@ public class GameScreen implements Screen {
         }
         boolean busy = fadingOut || fade > 0f;
         boolean drawerOpen = drawers.isOpen();
-        boolean miniOpen = minigame.isActive();
-        boolean roomActive = !busy && !drawerOpen && !miniOpen;
+        boolean windowOpen = minigame.isActive();
+        boolean leakOpen = leakGame.isActive();
+        boolean roomActive = !busy && !drawerOpen && !windowOpen && !leakOpen;
 
-        viewport.apply();
-        Vector2 mouse = viewport.unproject(new Vector2(Gdx.input.getX(), Gdx.input.getY()));
         boolean inside = mouse.x >= 0 && mouse.x <= Main.WORLD_WIDTH
             && mouse.y >= 0 && mouse.y <= Main.WORLD_HEIGHT;
 
@@ -271,11 +334,12 @@ public class GameScreen implements Screen {
         boolean free = roomActive && inside && hs == null;
         GameWindow openWindow = free ? windowAt(mouse.x, mouse.y, false) : null;  // an open window
         GameWindow shutWindow = free ? windowAt(mouse.x, mouse.y, true) : null;   // an already closed window
+        Leak hoverLeak = free ? leakAt(mouse.x, mouse.y) : null;
         boolean overLeft = roomActive && inside && current.getLeftTarget() != null && mouse.x < EDGE_ZONE;
         boolean overRight = roomActive && inside && current.getRightTarget() != null
             && mouse.x > Main.WORLD_WIDTH - EDGE_ZONE;
         Item hoverItem = (drawerOpen && !busy && inside) ? drawers.itemAt(mouse.x, mouse.y) : null;
-        boolean overButton = miniOpen && !busy && minigame.buttonContains(mouse.x, mouse.y);
+        boolean overButton = windowOpen && !busy && minigame.buttonContains(mouse.x, mouse.y);
 
         // the shadow lifts and the light grows as the mouse gets closer to that side
         float leftAim = overLeft ? 1f - mouse.x / EDGE_ZONE : 0f;
@@ -284,16 +348,19 @@ public class GameScreen implements Screen {
         leftReveal += (leftAim - leftReveal) * smooth;
         rightReveal += (rightAim - rightReveal) * smooth;
 
+        boolean overPuddle = hoverLeak != null && !hoverLeak.isDone();
         Gdx.graphics.setSystemCursor(
-            (hs != null || openWindow != null || overLeft || overRight
+            (hs != null || openWindow != null || overPuddle || overLeft || overRight
                 || hoverItem != null || drawers.isDragging() || overButton)
                 ? Cursor.SystemCursor.Hand
                 : Cursor.SystemCursor.Arrow);
 
         // clicks and dragging
-        if (miniOpen && !busy) {
+        if (windowOpen && !busy) {
             boolean pressed = Gdx.input.justTouched() && overButton;
             if (pressed || Gdx.input.isKeyJustPressed(Input.Keys.SPACE)) onWindowPress();
+        } else if (leakOpen) {
+            // nothing to click: the mouse moves the bucket
         } else if (drawerOpen && !busy) {
             if (Gdx.input.justTouched()) {
                 if (hoverItem != null) {
@@ -318,6 +385,9 @@ public class GameScreen implements Screen {
                 minigame.open(openWindow);
             } else if (shutWindow != null) {
                 dialogue.say("This window is already closed.");
+            } else if (hoverLeak != null) {
+                if (hoverLeak.isDone()) dialogue.say("I already put a bucket here.");
+                else leakGame.open(hoverLeak);
             } else if (overLeft) {
                 goTo(current.getLeftTarget());
             } else if (overRight) {
@@ -340,13 +410,22 @@ public class GameScreen implements Screen {
             game.batch.draw(current.getTexture(), 0, 0, Main.WORLD_WIDTH, Main.WORLD_HEIGHT);
             game.batch.setBlendFunction(GL20.GL_SRC_ALPHA, GL20.GL_ONE_MINUS_SRC_ALPHA);
         }
+
+        // the puddles (a small bucket replaces a puddle once its leak is stopped)
+        if (currentTask >= 2) {
+            for (Leak l : leaks) {
+                if (!l.getRoomId().equals(current.getId())) continue;
+                if (l.isDone()) leakGame.drawBucketSmall(game.batch, l, b);
+                else leakGame.drawPuddle(game.batch, l, b, time);
+            }
+        }
         game.batch.setColor(Color.WHITE);
         game.batch.end();
 
         // edge shadows (and faint light) on the sides that lead somewhere
         Gdx.gl.glEnable(GL20.GL_BLEND);
         Gdx.gl.glBlendFunc(GL20.GL_SRC_ALPHA, GL20.GL_ONE_MINUS_SRC_ALPHA);
-        if (!drawerOpen && !miniOpen) {
+        if (!drawerOpen && !windowOpen && !leakOpen) {
             if (current.getLeftTarget() != null) drawEdgeShade(true, leftReveal);
             if (current.getRightTarget() != null) drawEdgeShade(false, rightReveal);
         }
@@ -359,9 +438,10 @@ public class GameScreen implements Screen {
             shapes.end();
         }
 
-        // the open drawer and the window minigame
+        // the open drawer and the minigames
         drawers.render(game.batch, game.font);
         minigame.render(game.batch, game.font, windowFrames, mouse.x, mouse.y);
+        leakGame.render(game.batch, game.font);
 
         // text
         game.batch.begin();
@@ -376,9 +456,10 @@ public class GameScreen implements Screen {
         game.font.setColor(Color.WHITE);
         game.font.draw(game.batch, "> " + OBJECTIVE[currentTask], 30, 690);
 
-        String info = (currentTask == 1)
-            ? "Windows closed: " + closedCount() + " of " + windows.size
-            : OBJECTIVE_INFO[currentTask];
+        String info;
+        if (currentTask == 1) info = "Windows closed: " + closedCount() + " of " + windows.size;
+        else if (currentTask == 2) info = "Leaks stopped: " + (leaks.size - leaksLeft()) + " of " + leaks.size;
+        else info = OBJECTIVE_INFO[currentTask];
         game.font.getData().setScale(1.2f);
         game.font.setColor(0.85f, 0.85f, 0.85f, 1f);
         game.font.draw(game.batch, info, 30 + indent, 658);
@@ -448,6 +529,7 @@ public class GameScreen implements Screen {
         dialogue.dispose();
         windowFrames.dispose();
         minigame.dispose();
+        leakGame.dispose();
         shapes.dispose();
     }
 }

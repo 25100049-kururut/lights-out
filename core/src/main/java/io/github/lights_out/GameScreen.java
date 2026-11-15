@@ -261,7 +261,7 @@ public class GameScreen implements Screen {
     }
 
     /** The player grabbed an item inside a drawer. */
-    private void onGrab(Item item) {
+    private void onGrab(Item item, float x, float y) {
         if (item.getName().equals("flashlight")) {
             drawers.takeFlashlight();
             drawers.close();
@@ -278,13 +278,14 @@ public class GameScreen implements Screen {
             dialogue.say("Found it! Come on, turn on...",
                 "The battery is almost dead. It barely lights anything.",
                 "The windows are rattling... I have to close every one!");
-        } else if (item.isHazard()) {
+        } else if (item.isSharpAt(x, y)) {
+            // only the sharp part (blade, tip, prongs) hurts; handles are safe
             mistakes++;
             drawers.hurt();
             dialogue.say(OUCH[ouchIndex % OUCH.length]);
             ouchIndex++;
         }
-        // harmless items (keys, pills) can be moved with no penalty
+        // harmless items (keys, pills) and the safe parts of sharp things (handles) can be moved with no penalty
     }
 
     /** The player pressed the CLOSE button in the window minigame. */
@@ -467,7 +468,7 @@ public class GameScreen implements Screen {
             if (Gdx.input.justTouched()) {
                 if (hoverItem != null) {
                     Item grabbed = drawers.grab(mouse.x, mouse.y);
-                    if (grabbed != null) onGrab(grabbed);
+                    if (grabbed != null) onGrab(grabbed, mouse.x, mouse.y);
                 } else if (!drawers.insidePanel(mouse.x, mouse.y)) {
                     drawers.close();
                 }

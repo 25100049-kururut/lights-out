@@ -151,6 +151,42 @@ public class Item {
         return (hitMap.getPixel(px, py) & 0xff) > 40;
     }
 
+    /**
+     * True if the point (x, y) touches the SHARP part of the item (e.g. the knife's blade, not its handle).
+     * Always false for harmless items, or if the point is not on the item at all.
+     */
+    public boolean isSharpAt(float x, float y) {
+        if (!hazard || !contains(x, y)) return false;
+
+        // work out where the point is on the picture, as a share of its width/height (0..1, y from the top)
+        float dx = x - cx;
+        float dy = y - cy;
+        float r = rotation * MathUtils.degreesToRadians;
+        float cos = MathUtils.cos(r);
+        float sin = MathUtils.sin(r);
+        float lx = dx * cos + dy * sin;
+        float ly = -dx * sin + dy * cos;
+        float nx = (lx / scale + w / 2f) / w;
+        float ny = (h / 2f - ly / scale) / h;
+
+        switch (name) {
+            case "knife":
+                // the blade is the top-left; the guard (where the handle starts) is a slanted line
+                return nx < 0.64f - 0.342f * (ny - 0.536f);
+            case "scissors":
+                // the two blades are the bottom-left half; the handles are at the top
+                return ny > 0.5f && nx < 0.52f;
+            case "screwdriver":
+                // only the tip at the top
+                return ny < 0.10f;
+            case "fork":
+                // only the prongs at the top
+                return ny < 0.18f;
+            default:
+                return true; // unknown sharp item: all of it is sharp
+        }
+    }
+
     public String getName() { return name; }
     public boolean isHazard() { return hazard; }
     public boolean isVisible() { return visible; }

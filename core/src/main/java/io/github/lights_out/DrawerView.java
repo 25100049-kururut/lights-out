@@ -168,7 +168,7 @@ public class DrawerView {
         font.draw(batch, "Searching the drawer...", PANEL_X, PANEL_Y + PANEL_H + 48);
         font.getData().setScale(1.1f);
         font.setColor(0.55f, 0.55f, 0.55f, 1f);
-        font.draw(batch, "Drag items to move them. Sharp things hurt!   Click outside or press ESC to close.",
+        font.draw(batch, "Drag items to move them. Watch out for sharp edges and tips!   Click outside or press ESC to close.",
             PANEL_X, PANEL_Y + PANEL_H + 26);
         font.getData().setScale(1f);
         font.setColor(Color.WHITE);

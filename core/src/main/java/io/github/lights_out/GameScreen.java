@@ -31,6 +31,10 @@ public class GameScreen implements Screen {
     private static final int START_OPEN = 4;           // how open the windows start (4 = wide open = 4 hits each)
     private static final float SURGE_TIME = 120f;      // seconds for the surge meter to fill (then you lose)
 
+    private static final int MAX_CHANCES = 10;         // how many mistakes you can make before the jumpscare (hidden from the player)
+    private static final int CHANCES_PER_TASK = 2;     // chances you get back when you finish a task
+    private static final int LOW_CHANCES = 3;          // at this many chances or fewer, the warnings start
+
     // What shows at the top-left for each task (big line, small line)
     private static final String[] OBJECTIVE = {
         "Find the Flashlight", "Close the windows", "Stop the leaks", "Unplug the devices",
@@ -81,6 +85,7 @@ public class GameScreen implements Screen {
     private final Map<String, Room> rooms = new HashMap<>();
     private final DrawerView drawers;
     private final DialogueBox dialogue = new DialogueBox();
+    private final Jumpscare jumpscare = new Jumpscare();
 
     private final WindowFrames windowFrames = new WindowFrames();
     private final Array<GameWindow> windows = new Array<>();
@@ -93,8 +98,11 @@ public class GameScreen implements Screen {
     private final UnplugMinigame unplugGame = new UnplugMinigame();
     private final Array<Device> devices = new Array<>();
     private float surge = 0f;          // 0 = empty, 1 = full (you lose)
+
     private boolean gameOver = false;
     private float gameOverTimer = 0f;
+    private String gameOverTitle = "THE POWER CAME BACK";
+    private String gameOverText = "The surge was too strong. You lost.";
 
     private Room current;
     private String pendingRoom = null;
@@ -107,7 +115,9 @@ public class GameScreen implements Screen {
     private int currentTask;
     private boolean flashlightFound = false;
     private float lightLevel = 0f;   // 0 = rooms as they were, 1 = lighter (flashlight found)
-    private int mistakes = 0;        // counts mistakes (the entity will use this later)
+    private int mistakes = 0;        // counts every mistake (the entity will use this later)
+    private int chances = MAX_CHANCES; // mistakes left before the jumpscare
+    private boolean warnedLow = false;
     private int ouchIndex = 0;
     private int missIndex = 0;
     private int spillIndex = 0;
@@ -231,6 +241,41 @@ public class GameScreen implements Screen {
         return n;
     }
 
+    /** A mistake: costs chances, and at 0 chances the jumpscare starts. line = what you say. */
+    private void fail(int count, String line) {
+        mistakes += count;
+        chances = Math.max(0, chances - count);
+
+        if (chances <= 0) {
+            startJumpscare();
+            return;
+        }
+        if (chances <= LOW_CHANCES && !warnedLow) {
+            warnedLow = true;
+            dialogue.say(line, "I'm running out of chances... Something is in the house.");
+        } else {
+            dialogue.say(line);
+        }
+    }
+
+    /** A task was finished: you get some chances back (never more than the maximum). */
+    private void gainChances() {
+        chances = Math.min(MAX_CHANCES, chances + CHANCES_PER_TASK);
+        if (chances > LOW_CHANCES) warnedLow = false;
+    }
+
+    private void startJumpscare() {
+        drawers.close();
+        minigame.close();
+        leakGame.close();
+        unplugGame.close();
+        gameOver = true;
+        gameOverTimer = 0f;
+        gameOverTitle = "IT FOUND YOU";
+        gameOverText = "You made too many mistakes. It heard every one.";
+        jumpscare.start();
+    }
+
     /** A window of the current room under the mouse. wantClosed: look for closed or open ones. */
     private GameWindow windowAt(float x, float y, boolean wantClosed) {
         if (!windowsActive) return null;
@@ -267,6 +312,7 @@ public class GameScreen implements Screen {
             drawers.close();
             flashlightFound = true;
             currentTask = Math.max(currentTask, 1);
+            gainChances();
 
             // the storm blows the windows open: task 2 begins
             windowsActive = true;
@@ -280,9 +326,8 @@ public class GameScreen implements Screen {
                 "The windows are rattling... I have to close every one!");
         } else if (item.isSharpAt(x, y)) {
             // only the sharp part (blade, tip, prongs) hurts; handles are safe
-            mistakes++;
             drawers.hurt();
-            dialogue.say(OUCH[ouchIndex % OUCH.length]);
+            fail(1, OUCH[ouchIndex % OUCH.length]);
             ouchIndex++;
         }
         // harmless items (keys, pills) and the safe parts of sharp things (handles) can be moved with no penalty
@@ -297,6 +342,7 @@ public class GameScreen implements Screen {
             if (w != null && w.isClosed()) {
                 if (closedCount() == windows.size) {
                     currentTask = Math.max(currentTask, 2);
+                    gainChances();
                     dialogue.say("That's all of them. The wind can't get in now.",
                         "...Wait. What's that dripping sound? There are puddles everywhere!");
                 } else {
@@ -304,8 +350,7 @@ public class GameScreen implements Screen {
                 }
             }
         } else if (result == WindowMinigame.Result.FAIL) {
-            mistakes++;
-            dialogue.say(MISS[missIndex % MISS.length]);
+            fail(1, MISS[missIndex % MISS.length]);
             missIndex++;
         }
     }
@@ -328,7 +373,7 @@ public class GameScreen implements Screen {
             }
         }
 
-        // the surge filled the meter: the game is lost
+        // the game is lost (jumpscare or surge)
         if (gameOver) {
             renderGameOver(delta);
             return;
@@ -355,6 +400,8 @@ public class GameScreen implements Screen {
                 surge = 1f;
                 gameOver = true;
                 gameOverTimer = 0f;
+                gameOverTitle = "THE POWER CAME BACK";
+                gameOverText = "The surge was too strong. You lost.";
                 drawers.close();
                 minigame.close();
                 leakGame.close();
@@ -366,8 +413,7 @@ public class GameScreen implements Screen {
         // missed drops in the leak minigame: the fail effect
         int misses = leakGame.takeMisses();
         if (misses > 0) {
-            mistakes += misses;
-            dialogue.say(SPILL[spillIndex % SPILL.length]);
+            fail(misses, SPILL[spillIndex % SPILL.length]);
             spillIndex++;
         }
 
@@ -378,6 +424,7 @@ public class GameScreen implements Screen {
             if (leaksLeft() == 0) {
                 currentTask = Math.max(currentTask, 3);
                 surge = 0f;
+                gainChances();
                 dialogue.say("That's the last leak. The floor is finally safe.",
                     "The power could surge back any second! I have to unplug everything, fast!");
             } else {
@@ -388,9 +435,8 @@ public class GameScreen implements Screen {
         // pulled the plug too fast or too slow: the fail effect
         int plugFails = unplugGame.takeZaps();
         if (plugFails > 0) {
-            mistakes += plugFails;
             String[] lines = unplugGame.wasTooFast() ? TOO_FAST : TOO_SLOW;
-            dialogue.say(lines[plugIndex % lines.length]);
+            fail(plugFails, lines[plugIndex % lines.length]);
             plugIndex++;
         }
 
@@ -400,11 +446,18 @@ public class GameScreen implements Screen {
             if (d != null) d.setDone(true);
             if (devicesLeft() == 0) {
                 currentTask = Math.max(currentTask, 4);
+                gainChances();
                 dialogue.say("That's everything. No more sparks... for now.",
                     "Now I have to lock the doors. Where are the keys?");
             } else {
                 dialogue.say("Unplugged. " + devicesLeft() + " more to go!");
             }
+        }
+
+        // a mistake used up the last chance: the jumpscare starts
+        if (gameOver) {
+            renderGameOver(delta);
+            return;
         }
 
         // fade between rooms
@@ -548,6 +601,9 @@ public class GameScreen implements Screen {
             shapes.end();
         }
 
+        // the fewer chances you have, the redder and darker the screen edges get
+        drawVignette();
+
         // the open drawer and the minigames
         drawers.render(game.batch, game.font);
         minigame.render(game.batch, game.font, windowFrames, mouse.x, mouse.y);
@@ -596,17 +652,28 @@ public class GameScreen implements Screen {
             game.font.draw(game.batch, pct, meterCenter - layout.width / 2f, 150f);
         }
 
+        game.font.getData().setScale(1f);
         game.font.setColor(Color.WHITE);
         dialogue.render(game.batch, game.font);
         game.font.setColor(Color.WHITE);
         game.batch.end();
     }
 
-    /** The lost-game screen: the surge meter filled up. */
+    /** The lost-game screen. The jumpscare plays first if you ran out of chances. */
     private void renderGameOver(float delta) {
-        gameOverTimer += delta;
         viewport.apply();
         Gdx.graphics.setSystemCursor(Cursor.SystemCursor.Arrow);
+
+        // the jumpscare
+        if (jumpscare.isActive()) {
+            jumpscare.update(delta);
+            ScreenUtils.clear(0, 0, 0, 1);
+            game.batch.setProjectionMatrix(viewport.getCamera().combined);
+            jumpscare.render(game.batch);
+            return;
+        }
+
+        gameOverTimer += delta;
 
         ScreenUtils.clear(0, 0, 0, 1);
         game.batch.setProjectionMatrix(viewport.getCamera().combined);
@@ -617,13 +684,13 @@ public class GameScreen implements Screen {
 
         game.font.getData().setScale(4f);
         game.font.setColor(0.85f, 0.05f, 0.05f, 1f);
-        layout.setText(game.font, "THE POWER CAME BACK");
-        game.font.draw(game.batch, "THE POWER CAME BACK", (Main.WORLD_WIDTH - layout.width) / 2f, 430f);
+        layout.setText(game.font, gameOverTitle);
+        game.font.draw(game.batch, gameOverTitle, (Main.WORLD_WIDTH - layout.width) / 2f, 430f);
 
         game.font.getData().setScale(1.8f);
         game.font.setColor(Color.WHITE);
-        layout.setText(game.font, "The surge was too strong. You lost.");
-        game.font.draw(game.batch, "The surge was too strong. You lost.", (Main.WORLD_WIDTH - layout.width) / 2f, 350f);
+        layout.setText(game.font, gameOverText);
+        game.font.draw(game.batch, gameOverText, (Main.WORLD_WIDTH - layout.width) / 2f, 350f);
 
         if (gameOverTimer > 1f) {
             game.font.getData().setScale(1.5f);
@@ -640,6 +707,25 @@ public class GameScreen implements Screen {
         if (gameOverTimer > 1f && Gdx.input.justTouched()) {
             game.setScreen(new OpeningScene(game));
         }
+    }
+
+    /** Dark red edges that grow stronger as the chances run out. */
+    private void drawVignette() {
+        float strength = (1f - (float) chances / MAX_CHANCES) * 0.55f;
+        if (chances <= LOW_CHANCES) strength *= 0.8f + 0.2f * MathUtils.sin(time * 6f);
+        if (strength < 0.02f) return;
+
+        float w = 230f;
+        float W = Main.WORLD_WIDTH, H = Main.WORLD_HEIGHT;
+        Color dark = new Color(0.25f, 0f, 0f, strength);
+        Color clear = new Color(0.25f, 0f, 0f, 0f);
+
+        shapes.begin(ShapeRenderer.ShapeType.Filled);
+        shapes.rect(0, 0, w, H, dark, clear, clear, dark);          // left
+        shapes.rect(W - w, 0, w, H, clear, dark, dark, clear);      // right
+        shapes.rect(0, H - w, W, w, clear, clear, dark, dark);      // top
+        shapes.rect(0, 0, W, w, dark, dark, clear, clear);          // bottom
+        shapes.end();
     }
 
     /** The surge meter on the right side of the screen. */
@@ -745,6 +831,7 @@ public class GameScreen implements Screen {
         minigame.dispose();
         leakGame.dispose();
         unplugGame.dispose();
+        jumpscare.dispose();
         shapes.dispose();
     }
 }

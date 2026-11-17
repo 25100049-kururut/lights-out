@@ -35,6 +35,8 @@ public class GameScreen implements Screen {
     private static final int CHANCES_PER_TASK = 2;     // chances you get back when you finish a task
     private static final int LOW_CHANCES = 3;          // at this many chances or fewer, the warnings start
 
+    private static final float FLASH_BRIGHTNESS = 0.5f; // how bright the brightest lightning flash is (0 to 1)
+
     // What shows at the top-left for each task (big line, small line)
     private static final String[] OBJECTIVE = {
         "Find the Flashlight", "Close the windows", "Stop the leaks", "Unplug the devices",
@@ -103,6 +105,7 @@ public class GameScreen implements Screen {
     private final DrawerView drawers;
     private final DialogueBox dialogue = new DialogueBox();
     private final Jumpscare jumpscare = new Jumpscare();
+    private final Lightning lightning;   // random lightning flashes (the thunder comes with them)
 
     private final WindowFrames windowFrames = new WindowFrames();
     private final Array<GameWindow> windows = new Array<>();
@@ -147,6 +150,9 @@ public class GameScreen implements Screen {
     public GameScreen(Main game, int startTask) {
         this.game = game;
         this.currentTask = Math.min(startTask, OBJECTIVE.length - 1);
+        this.lightning = new Lightning(game.audio, 5f, 7f, 20f);
+        game.audio.startAmbience();
+        game.audio.setHorrorEvents(true);
 
         // the flashlight is buried in a random drawer (0 or 1)
         drawers = new DrawerView(MathUtils.random(1));
@@ -279,6 +285,7 @@ public class GameScreen implements Screen {
     private void fail(int count, String line) {
         mistakes += count;
         chances = Math.max(0, chances - count);
+        game.audio.play("sfx_thump", 0.8f);   // a dull thud somewhere in the house
 
         if (chances <= 0) {
             startJumpscare();
@@ -295,6 +302,7 @@ public class GameScreen implements Screen {
     /** A task was finished: you get some chances back (never more than the maximum). */
     private void gainChances() {
         chances = Math.min(MAX_CHANCES, chances + CHANCES_PER_TASK);
+        game.audio.play("sfx_success", 0.6f);
         if (chances > LOW_CHANCES) warnedLow = false;
     }
 
@@ -308,6 +316,9 @@ public class GameScreen implements Screen {
         leakGame.close();
         unplugGame.close();
         doorGame.close();
+        game.audio.setMood(0.1f, 0.05f, 0f);   // the storm goes quiet: only the scream (jumpscare.wav)
+        game.audio.setHorrorEvents(false);
+        game.audio.setHeartbeat(0f);
         gameOver = true;
         gameOverTimer = 0f;
         gameOverTitle = title;
@@ -358,6 +369,7 @@ public class GameScreen implements Screen {
         if (item.getName().equals("flashlight")) {
             drawers.takeFlashlight();
             drawers.close();
+            game.audio.play("sfx_flashlight");
             flashlightFound = true;
             currentTask = Math.max(currentTask, 1);
             gainChances();
@@ -375,6 +387,7 @@ public class GameScreen implements Screen {
         } else if (item.isSharpAt(x, y)) {
             // only the sharp part (blade, tip, prongs) hurts; handles are safe
             drawers.hurt();
+            game.audio.play("sfx_hurt");
             fail(1, OUCH[ouchIndex % OUCH.length]);
             ouchIndex++;
         }
@@ -388,6 +401,7 @@ public class GameScreen implements Screen {
 
         if (result == WindowMinigame.Result.SUCCESS) {
             if (w != null && w.isClosed()) {
+                game.audio.play("sfx_shut");
                 if (closedCount() == windows.size) {
                     currentTask = Math.max(currentTask, 2);
                     gainChances();
@@ -430,6 +444,8 @@ public class GameScreen implements Screen {
         }
 
         time += delta;
+        lightning.update(delta);
+        updateAudioMood();
         viewport.apply();
         Vector2 mouse = viewport.unproject(new Vector2(Gdx.input.getX(), Gdx.input.getY()));
 
@@ -453,6 +469,11 @@ public class GameScreen implements Screen {
                 gameOverTimer = 0f;
                 gameOverTitle = "THE POWER CAME BACK";
                 gameOverText = "The surge was too strong. You lost.";
+                game.audio.play("sfx_zap");
+                game.audio.play("sfx_power_down");
+                game.audio.setMood(0.3f, 0.2f, 0f);
+                game.audio.setHorrorEvents(false);
+                game.audio.setHeartbeat(0f);
                 drawers.close();
                 minigame.close();
                 leakGame.close();
@@ -465,6 +486,7 @@ public class GameScreen implements Screen {
         // missed drops in the leak minigame: the fail effect
         int misses = leakGame.takeMisses();
         if (misses > 0) {
+            game.audio.play("sfx_drip");
             fail(misses, SPILL[spillIndex % SPILL.length]);
             spillIndex++;
         }
@@ -487,6 +509,7 @@ public class GameScreen implements Screen {
         // pulled the plug too fast or too slow: the fail effect
         int plugFails = unplugGame.takeZaps();
         if (plugFails > 0) {
+            game.audio.play("sfx_zap");
             String[] lines = unplugGame.wasTooFast() ? TOO_FAST : TOO_SLOW;
             fail(plugFails, lines[plugIndex % lines.length]);
             plugIndex++;
@@ -524,6 +547,7 @@ public class GameScreen implements Screen {
         if (doorGame.takeFinished()) {
             MainDoor d = doorGame.getTarget();
             if (d != null) d.setDone(true);
+            game.audio.play("sfx_lock");
             if (doorsLeft() == 0) {
                 currentTask = Math.max(currentTask, 5);
                 gainChances();
@@ -617,6 +641,7 @@ public class GameScreen implements Screen {
             if (hs != null) {
                 if (hs.getAction() != null) {
                     drawers.open(hs.getAction().equals("drawer0") ? 0 : 1);
+                    game.audio.play("sfx_click");
                 } else {
                     goTo(hs.getTargetRoom());
                 }
@@ -691,6 +716,9 @@ public class GameScreen implements Screen {
         // the fewer chances you have, the redder and darker the screen edges get
         drawVignette();
 
+        // lightning flash over the room
+        lightning.draw(shapes, FLASH_BRIGHTNESS);
+
         // the open drawer and the minigames
         drawers.render(game.batch, game.font);
         minigame.render(game.batch, game.font, windowFrames, mouse.x, mouse.y);
@@ -746,6 +774,20 @@ public class GameScreen implements Screen {
         dialogue.render(game.batch, game.font);
         game.font.setColor(Color.WHITE);
         game.batch.end();
+    }
+
+    /**
+     * The storm sound follows the story: rain and wind get loud while the windows are blown open,
+     * the horror drone grows as the chances run out, and a heartbeat starts when you are nearly caught.
+     */
+    private void updateAudioMood() {
+        boolean windowsOpen = windowsActive && closedCount() < windows.size;
+        float rain = windowsOpen ? 0.95f : 0.55f;
+        float wind = windowsOpen ? 0.85f : 0.3f;
+        float danger = 1f - (float) chances / MAX_CHANCES;   // 0 = safe, 1 = about to be caught
+        float drone = 0.3f + 0.5f * danger + (currentTask >= 3 ? 0.1f : 0f);
+        game.audio.setMood(rain, wind, drone);
+        game.audio.setHeartbeat(chances <= LOW_CHANCES ? 1f - (float) chances / (LOW_CHANCES + 1) : 0f);
     }
 
     /** The lost-game screen. The jumpscare plays first if you ran out of chances. */

@@ -44,12 +44,32 @@ public class OpeningScene implements Screen {
         new Line("You", "It's so dark. I need to find the flashlight... maybe in the kitchen.", 2)
     };
 
+    private final Lightning lightning;   // flashes once the room is dark
+
     private int index = 0;
     private float charTimer = 0f;
     private final float charsPerSecond = 40f;
 
     public OpeningScene(Main game) {
         this.game = game;
+        lightning = new Lightning(game.audio, 3f, 6f, 14f);
+
+        // lights still on: just the storm outside, no horror yet
+        game.audio.setMood(0.4f, 0.12f, 0f);
+        game.audio.setHorrorEvents(false);
+        game.audio.setHeartbeat(0f);
+    }
+
+    /** Called when a new line starts: the sound follows the mood of the scene. */
+    private void onLineChanged() {
+        int mode = lines[index].mode;
+        if (mode == 1) {                       // the brownout
+            game.audio.play("sfx_power_down");
+            game.audio.thunder(0.9f);
+            game.audio.setMood(0.4f, 0.12f, 0f);
+        } else if (mode == 2) {                // dark room: the horror drone creeps in
+            game.audio.setMood(0.6f, 0.35f, 0.55f);
+        }
     }
 
     @Override
@@ -66,6 +86,7 @@ public class OpeningScene implements Screen {
             } else if (index < lines.length - 1) {
                 index++;
                 charTimer = 0f;
+                onLineChanged();
                 return;
             } else {
                 game.setScreen(new GameScreen(game, 0));
@@ -85,6 +106,11 @@ public class OpeningScene implements Screen {
         game.batch.draw(bedroom, 0, 0, Main.WORLD_WIDTH, Main.WORLD_HEIGHT);
         game.batch.setColor(Color.WHITE);
         game.batch.end();
+
+        // lightning flashes (only once the room is dark)
+        lightning.setEnabled(line.mode == 2);
+        lightning.update(delta);
+        lightning.draw(shapes, 0.45f);
 
         // dialogue bar
         Gdx.gl.glEnable(GL20.GL_BLEND);

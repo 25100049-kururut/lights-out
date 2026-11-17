@@ -36,7 +36,6 @@ public class MainMenuScreen implements Screen {
     private static final float DARK_LEVEL = 0.35f;
     private static final float MIN_WAIT = 4f;
     private static final float MAX_WAIT = 9f;
-    private static final float FLASH_LENGTH = 0.8f;
 
     private final Main game;
     private final FitViewport viewport = new FitViewport(Main.WORLD_WIDTH, Main.WORLD_HEIGHT);
@@ -54,11 +53,16 @@ public class MainMenuScreen implements Screen {
     private float messageTimer = 0f;
     private float time = 0f;
 
-    private float nextStrike = 2.5f;
-    private float flashTime = -1f;
+    private final Lightning lightning;   // random flashes (with thunder)
 
     public MainMenuScreen(Main game) {
         this.game = game;
+        lightning = new Lightning(game.audio, 2.5f, MIN_WAIT, MAX_WAIT);
+
+        // menu sound: steady rain, a little wind, a soft drone. No creepy noises or heartbeat here.
+        game.audio.setMood(0.5f, 0.3f, 0.4f);
+        game.audio.setHorrorEvents(false);
+        game.audio.setHeartbeat(0f);
         background.setFilter(Texture.TextureFilter.Linear, Texture.TextureFilter.Linear);
         title.setFilter(Texture.TextureFilter.Linear, Texture.TextureFilter.Linear);
         glow = makeGlowTexture(256);
@@ -90,31 +94,13 @@ public class MainMenuScreen implements Screen {
         return t;
     }
 
-    private float flashStrength() {
-        if (flashTime < 0) return 0f;
-        float t = flashTime;
-        if (t < 0.08f) return 1f;
-        if (t < 0.18f) return 0.15f;
-        if (t < 0.30f) return 0.85f;
-        return Math.max(0f, 1f - (t - 0.30f) / (FLASH_LENGTH - 0.30f));
-    }
-
     @Override
     public void render(float delta) {
         time += delta;
         if (messageTimer > 0) messageTimer -= delta;
 
-        // lightning timing
-        if (flashTime >= 0) {
-            flashTime += delta;
-            if (flashTime > FLASH_LENGTH) flashTime = -1f;
-        } else {
-            nextStrike -= delta;
-            if (nextStrike <= 0) {
-                flashTime = 0f;
-                nextStrike = MathUtils.random(MIN_WAIT, MAX_WAIT);
-            }
-        }
+        // lightning timing (the Lightning class also plays the thunder)
+        lightning.update(delta);
 
         viewport.apply();
         Vector2 mouse = viewport.unproject(new Vector2(Gdx.input.getX(), Gdx.input.getY()));
@@ -142,7 +128,7 @@ public class MainMenuScreen implements Screen {
         }
 
         // background brightness: dark, lifted by the lightning
-        float flash = flashStrength();
+        float flash = lightning.getFlash();
         float b = DARK_LEVEL + (1.15f - DARK_LEVEL) * flash;
         float r = Math.min(1f, b * 0.92f);
         float g = Math.min(1f, b * 0.97f);
@@ -193,6 +179,7 @@ public class MainMenuScreen implements Screen {
     }
 
     private void choose(int index) {
+        game.audio.play("sfx_click");
         if (index == 0) {
             int done = prefs.getInteger("tasksDone", 0);
             if (done > 0) game.setScreen(new GameScreen(game, done));

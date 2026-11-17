@@ -42,7 +42,7 @@ public class GameScreen implements Screen {
     };
     private static final String[] OBJECTIVE_INFO = {
         "in the Kitchen drawers", "every window in the house", "use the buckets", "before the power surges",
-        "find the keys first", "coming in under the door", "and some supplies", "before time runs out"
+        "the living room and the kitchen", "coming in under the door", "and some supplies", "before time runs out"
     };
 
     // What you say when you grab something sharp
@@ -78,6 +78,23 @@ public class GameScreen implements Screen {
         "Come on, it's getting hot... faster!"
     };
 
+    // What you say when a door lock check goes wrong
+    private static final String[] DOOR_WRONG = {
+        "Wrong key! The bolt jammed!",
+        "No, not that one! It's stuck!",
+        "Focus! The lock is jamming..."
+    };
+    private static final String[] DOOR_EARLY = {
+        "Too early! The lock slipped!",
+        "Wait for it... the bolt slid back!",
+        "Not yet! Patience..."
+    };
+    private static final String[] DOOR_SLOW = {
+        "Too slow! The bolt slid back!",
+        "I hesitated... it unlocked again!",
+        "Come on, faster! The lock is loosening!"
+    };
+
     private final Main game;
     private final FitViewport viewport = new FitViewport(Main.WORLD_WIDTH, Main.WORLD_HEIGHT);
     private final ShapeRenderer shapes = new ShapeRenderer();
@@ -98,6 +115,9 @@ public class GameScreen implements Screen {
     private final UnplugMinigame unplugGame = new UnplugMinigame();
     private final Array<Device> devices = new Array<>();
     private float surge = 0f;          // 0 = empty, 1 = full (you lose)
+
+    private final DoorMinigame doorGame = new DoorMinigame();
+    private final Array<MainDoor> doors = new Array<>();
 
     private boolean gameOver = false;
     private float gameOverTimer = 0f;
@@ -122,6 +142,7 @@ public class GameScreen implements Screen {
     private int missIndex = 0;
     private int spillIndex = 0;
     private int plugIndex = 0;
+    private int doorIndex = 0;
 
     public GameScreen(Main game, int startTask) {
         this.game = game;
@@ -147,6 +168,9 @@ public class GameScreen implements Screen {
         }
         if (startTask >= 4) {
             for (Device d : devices) d.setDone(true);
+        }
+        if (startTask >= 5) {
+            for (MainDoor d : doors) d.setDone(true);
         }
 
         current = rooms.get("bedroom");
@@ -216,6 +240,10 @@ public class GameScreen implements Screen {
         Device kitchenFan = new Device("kitchen", "fan", 203, 180, 90, 300);
         kitchenFan.setOutlet(146, 205, 48, 40);
         devices.add(kitchenFan);
+
+        // The main doors to lock: room, name, then the click area in the 1920x953 room picture
+        doors.add(MainDoor.fromImage("living", "front door", 380, 294, 575, 585));
+        doors.add(MainDoor.fromImage("kitchen", "back door", 1274, 267, 1476, 530));
     }
 
     private void goTo(String roomId) {
@@ -238,6 +266,12 @@ public class GameScreen implements Screen {
     private int devicesLeft() {
         int n = 0;
         for (Device d : devices) if (!d.isDone()) n++;
+        return n;
+    }
+
+    private int doorsLeft() {
+        int n = 0;
+        for (MainDoor d : doors) if (!d.isDone()) n++;
         return n;
     }
 
@@ -265,14 +299,19 @@ public class GameScreen implements Screen {
     }
 
     private void startJumpscare() {
+        startJumpscare("IT FOUND YOU", "You made too many mistakes. It heard every one.");
+    }
+
+    private void startJumpscare(String title, String text) {
         drawers.close();
         minigame.close();
         leakGame.close();
         unplugGame.close();
+        doorGame.close();
         gameOver = true;
         gameOverTimer = 0f;
-        gameOverTitle = "IT FOUND YOU";
-        gameOverText = "You made too many mistakes. It heard every one.";
+        gameOverTitle = title;
+        gameOverText = text;
         jumpscare.start();
     }
 
@@ -300,6 +339,15 @@ public class GameScreen implements Screen {
     private Device deviceAt(float x, float y) {
         if (currentTask < 3) return null;
         for (Device d : devices) {
+            if (d.getRoomId().equals(current.getId()) && d.contains(x, y)) return d;
+        }
+        return null;
+    }
+
+    /** A main door of the current room under the mouse, once the lock-the-doors task has started. */
+    private MainDoor doorAt(float x, float y) {
+        if (currentTask < 4) return null;
+        for (MainDoor d : doors) {
             if (d.getRoomId().equals(current.getId()) && d.contains(x, y)) return d;
         }
         return null;
@@ -359,7 +407,9 @@ public class GameScreen implements Screen {
     public void render(float delta) {
         // ESC closes the minigame or the drawer first, otherwise goes back to the menu
         if (Gdx.input.isKeyJustPressed(Input.Keys.ESCAPE)) {
-            if (unplugGame.isActive()) {
+            if (doorGame.isActive()) {
+                doorGame.close();
+            } else if (unplugGame.isActive()) {
                 unplugGame.close();
             } else if (leakGame.isActive()) {
                 leakGame.close();
@@ -388,6 +438,7 @@ public class GameScreen implements Screen {
         minigame.update(delta);
         leakGame.update(delta, mouse.x);
         unplugGame.update(delta, mouse.x, mouse.y, Gdx.input.justTouched(), Gdx.input.isTouched());
+        doorGame.update(delta, Gdx.input.justTouched());
         for (GameWindow w : windows) w.update(delta);
         if (flashlightFound && lightLevel < 1f) {
             lightLevel = Math.min(1f, lightLevel + delta * LIGHT_SPEED);
@@ -406,6 +457,7 @@ public class GameScreen implements Screen {
                 minigame.close();
                 leakGame.close();
                 unplugGame.close();
+                doorGame.close();
                 return;
             }
         }
@@ -448,9 +500,37 @@ public class GameScreen implements Screen {
                 currentTask = Math.max(currentTask, 4);
                 gainChances();
                 dialogue.say("That's everything. No more sparks... for now.",
-                    "Now I have to lock the doors. Where are the keys?");
+                    "Now I have to lock both main doors. One in the living room, one in the kitchen!");
             } else {
                 dialogue.say("Unplugged. " + devicesLeft() + " more to go!");
+            }
+        }
+
+        // the spam bar of the door lock ran completely empty: instant jumpscare
+        if (doorGame.takeDrained()) {
+            startJumpscare("THE DOOR WAS NEVER LOCKED", "The bolt slid back. It was already inside.");
+        }
+
+        // wrong letter, too early or too slow on the lock: the fail effect
+        int doorFails = doorGame.takeFails();
+        if (doorFails > 0) {
+            String[] lines = doorGame.getFailReason() == DoorMinigame.FAIL_WRONG_KEY ? DOOR_WRONG
+                : doorGame.getFailReason() == DoorMinigame.FAIL_TOO_EARLY ? DOOR_EARLY : DOOR_SLOW;
+            fail(doorFails, lines[doorIndex % lines.length]);
+            doorIndex++;
+        }
+
+        // the lock clicked: this door is locked
+        if (doorGame.takeFinished()) {
+            MainDoor d = doorGame.getTarget();
+            if (d != null) d.setDone(true);
+            if (doorsLeft() == 0) {
+                currentTask = Math.max(currentTask, 5);
+                gainChances();
+                dialogue.say("Both doors are locked. Nothing is coming in that way.",
+                    "...But I can hear rain water coming in under the door!");
+            } else {
+                dialogue.say("Door locked. " + doorsLeft() + " more to go!");
             }
         }
 
@@ -478,7 +558,8 @@ public class GameScreen implements Screen {
         boolean windowOpen = minigame.isActive();
         boolean leakOpen = leakGame.isActive();
         boolean unplugOpen = unplugGame.isActive();
-        boolean roomActive = !busy && !drawerOpen && !windowOpen && !leakOpen && !unplugOpen;
+        boolean doorOpen = doorGame.isActive();
+        boolean roomActive = !busy && !drawerOpen && !windowOpen && !leakOpen && !unplugOpen && !doorOpen;
 
         boolean inside = mouse.x >= 0 && mouse.x <= Main.WORLD_WIDTH
             && mouse.y >= 0 && mouse.y <= Main.WORLD_HEIGHT;
@@ -489,6 +570,7 @@ public class GameScreen implements Screen {
         GameWindow shutWindow = free ? windowAt(mouse.x, mouse.y, true) : null;   // an already closed window
         Leak hoverLeak = free ? leakAt(mouse.x, mouse.y) : null;
         Device hoverDevice = free ? deviceAt(mouse.x, mouse.y) : null;
+        MainDoor hoverDoor = free ? doorAt(mouse.x, mouse.y) : null;
         boolean overLeft = roomActive && inside && current.getLeftTarget() != null && mouse.x < EDGE_ZONE;
         boolean overRight = roomActive && inside && current.getRightTarget() != null
             && mouse.x > Main.WORLD_WIDTH - EDGE_ZONE;
@@ -504,9 +586,10 @@ public class GameScreen implements Screen {
 
         boolean overPuddle = hoverLeak != null && !hoverLeak.isDone();
         boolean overPlugged = hoverDevice != null && !hoverDevice.isDone();
+        boolean overUnlocked = hoverDoor != null && !hoverDoor.isDone();
         boolean overPlug = unplugOpen && (unplugGame.isGrabbed() || unplugGame.isOverPlug(mouse.x, mouse.y));
         Gdx.graphics.setSystemCursor(
-            (hs != null || openWindow != null || overPuddle || overPlugged || overLeft || overRight
+            (hs != null || openWindow != null || overPuddle || overPlugged || overUnlocked || overLeft || overRight
                 || hoverItem != null || drawers.isDragging() || overButton || overPlug)
                 ? Cursor.SystemCursor.Hand
                 : Cursor.SystemCursor.Arrow);
@@ -515,8 +598,8 @@ public class GameScreen implements Screen {
         if (windowOpen && !busy) {
             boolean pressed = Gdx.input.justTouched() && overButton;
             if (pressed || Gdx.input.isKeyJustPressed(Input.Keys.SPACE)) onWindowPress();
-        } else if (leakOpen || unplugOpen) {
-            // nothing to click here: the minigame reads the mouse by itself
+        } else if (leakOpen || unplugOpen || doorOpen) {
+            // nothing to click here: the minigame reads the mouse and keys by itself
         } else if (drawerOpen && !busy) {
             if (Gdx.input.justTouched()) {
                 if (hoverItem != null) {
@@ -547,6 +630,9 @@ public class GameScreen implements Screen {
             } else if (hoverDevice != null) {
                 if (hoverDevice.isDone()) dialogue.say("The " + hoverDevice.getName() + " is already unplugged.");
                 else unplugGame.open(hoverDevice);
+            } else if (hoverDoor != null) {
+                if (hoverDoor.isDone()) dialogue.say("The " + hoverDoor.getName() + " is already locked.");
+                else doorGame.open(hoverDoor);
             } else if (overLeft) {
                 goTo(current.getLeftTarget());
             } else if (overRight) {
@@ -586,9 +672,10 @@ public class GameScreen implements Screen {
 
         // small marks on the devices and outlets: yellow sparks = still plugged in, green = unplugged
         if (currentTask >= 3) drawDeviceMarks();
+        if (currentTask >= 4) drawDoorMarks();
 
         // edge shadows (and faint light) on the sides that lead somewhere
-        if (!drawerOpen && !windowOpen && !leakOpen && !unplugOpen) {
+        if (!drawerOpen && !windowOpen && !leakOpen && !unplugOpen && !doorOpen) {
             if (current.getLeftTarget() != null) drawEdgeShade(true, leftReveal);
             if (current.getRightTarget() != null) drawEdgeShade(false, rightReveal);
         }
@@ -609,6 +696,7 @@ public class GameScreen implements Screen {
         minigame.render(game.batch, game.font, windowFrames, mouse.x, mouse.y);
         leakGame.render(game.batch, game.font);
         unplugGame.render(game.batch, game.font);
+        doorGame.render(game.batch, game.font);
 
         // the surge meter (always on top, even inside a minigame)
         drawSurgeMeter();
@@ -630,6 +718,7 @@ public class GameScreen implements Screen {
         if (currentTask == 1) info = "Windows closed: " + closedCount() + " of " + windows.size;
         else if (currentTask == 2) info = "Leaks stopped: " + (leaks.size - leaksLeft()) + " of " + leaks.size;
         else if (currentTask == 3) info = "Devices unplugged: " + (devices.size - devicesLeft()) + " of " + devices.size;
+        else if (currentTask == 4) info = "Doors locked: " + (doors.size - doorsLeft()) + " of " + doors.size;
         else info = OBJECTIVE_INFO[currentTask];
         game.font.getData().setScale(1.2f);
         game.font.setColor(0.85f, 0.85f, 0.85f, 1f);
@@ -766,6 +855,19 @@ public class GameScreen implements Screen {
         shapes.end();
     }
 
+    /** Small marks above the main doors of this room: yellow = still unlocked, green = locked. */
+    private void drawDoorMarks() {
+        shapes.begin(ShapeRenderer.ShapeType.Filled);
+        for (MainDoor d : doors) {
+            if (!d.getRoomId().equals(current.getId())) continue;
+            Rectangle r = d.getRect();
+            float cx = r.x + r.width / 2f;
+            setMarkColor(d.isDone(), cx);
+            shapes.circle(cx, r.y + r.height + 14f, 7f);
+        }
+        shapes.end();
+    }
+
     private void setMarkColor(boolean done, float seed) {
         if (done) {
             shapes.setColor(0.2f, 0.85f, 0.35f, 0.9f);
@@ -831,6 +933,7 @@ public class GameScreen implements Screen {
         minigame.dispose();
         leakGame.dispose();
         unplugGame.dispose();
+        doorGame.dispose();
         jumpscare.dispose();
         shapes.dispose();
     }

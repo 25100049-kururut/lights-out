@@ -53,14 +53,15 @@ public class MainMenuScreen implements Screen {
     private float messageTimer = 0f;
     private float time = 0f;
 
-    private final Lightning lightning;   // random flashes (with thunder)
+    private final Lightning lightning;   // random flashes (with their crack and thunder sounds)
 
     public MainMenuScreen(Main game) {
         this.game = game;
         lightning = new Lightning(game.audio, 2.5f, MIN_WAIT, MAX_WAIT);
 
-        // menu sound: steady rain, a little wind, a soft drone. No creepy noises or heartbeat here.
+        // menu sound: steady rain, a little wind, a soft drone, creepy music box. No creepy noises or heartbeat here.
         game.audio.setMood(0.5f, 0.3f, 0.4f);
+        game.audio.setMusic(0.6f, 0f);
         game.audio.setHorrorEvents(false);
         game.audio.setHeartbeat(0f);
         background.setFilter(Texture.TextureFilter.Linear, Texture.TextureFilter.Linear);
@@ -99,7 +100,7 @@ public class MainMenuScreen implements Screen {
         time += delta;
         if (messageTimer > 0) messageTimer -= delta;
 
-        // lightning timing (the Lightning class also plays the thunder)
+        // lightning timing (the Lightning class also plays the crack and the thunder)
         lightning.update(delta);
 
         viewport.apply();

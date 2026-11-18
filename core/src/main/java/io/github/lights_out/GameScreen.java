@@ -105,7 +105,7 @@ public class GameScreen implements Screen {
     private final DrawerView drawers;
     private final DialogueBox dialogue = new DialogueBox();
     private final Jumpscare jumpscare = new Jumpscare();
-    private final Lightning lightning;   // random lightning flashes (the thunder comes with them)
+    private final Lightning lightning;   // random lightning flashes (the crack and thunder come with them)
 
     private final WindowFrames windowFrames = new WindowFrames();
     private final Array<GameWindow> windows = new Array<>();
@@ -146,6 +146,11 @@ public class GameScreen implements Screen {
     private int spillIndex = 0;
     private int plugIndex = 0;
     private int doorIndex = 0;
+
+    // timers for the sounds that repeat on their own
+    private float howlTimer = 1.5f;     // wind howling while windows are open
+    private float dripTimer = 1f;       // dripping puddles
+    private float crackleTimer = 0.5f;  // wet outlet crackling
 
     public GameScreen(Main game, int startTask) {
         this.game = game;
@@ -302,7 +307,7 @@ public class GameScreen implements Screen {
     /** A task was finished: you get some chances back (never more than the maximum). */
     private void gainChances() {
         chances = Math.min(MAX_CHANCES, chances + CHANCES_PER_TASK);
-        game.audio.play("sfx_success", 0.6f);
+        game.audio.play("sfx_bell", 0.9f);   // a whole task finished: bell
         if (chances > LOW_CHANCES) warnedLow = false;
     }
 
@@ -317,6 +322,7 @@ public class GameScreen implements Screen {
         unplugGame.close();
         doorGame.close();
         game.audio.setMood(0.1f, 0.05f, 0f);   // the storm goes quiet: only the scream (jumpscare.wav)
+        game.audio.setMusic(0f, 0f);
         game.audio.setHorrorEvents(false);
         game.audio.setHeartbeat(0f);
         gameOver = true;
@@ -369,7 +375,7 @@ public class GameScreen implements Screen {
         if (item.getName().equals("flashlight")) {
             drawers.takeFlashlight();
             drawers.close();
-            game.audio.play("sfx_flashlight");
+            game.audio.play("sfx_flashlight");   // the click, then the bell from gainChances()
             flashlightFound = true;
             currentTask = Math.max(currentTask, 1);
             gainChances();
@@ -387,11 +393,15 @@ public class GameScreen implements Screen {
         } else if (item.isSharpAt(x, y)) {
             // only the sharp part (blade, tip, prongs) hurts; handles are safe
             drawers.hurt();
-            game.audio.play("sfx_hurt");
+            game.audio.play("sfx_cut");
+            game.audio.play("sfx_ouch");
+            game.audio.play("sfx_hurt", 0.6f);
             fail(1, OUCH[ouchIndex % OUCH.length]);
             ouchIndex++;
+        } else {
+            // harmless items (keys, pills) and the safe parts of sharp things (handles) can be moved with no penalty
+            game.audio.play("sfx_clatter", 0.6f, MathUtils.random(0.85f, 1.2f), 0f);
         }
-        // harmless items (keys, pills) and the safe parts of sharp things (handles) can be moved with no penalty
     }
 
     /** The player pressed the CLOSE button in the window minigame. */
@@ -401,17 +411,21 @@ public class GameScreen implements Screen {
 
         if (result == WindowMinigame.Result.SUCCESS) {
             if (w != null && w.isClosed()) {
-                game.audio.play("sfx_shut");
+                game.audio.play("sfx_shut");   // the window slams shut
                 if (closedCount() == windows.size) {
                     currentTask = Math.max(currentTask, 2);
                     gainChances();
                     dialogue.say("That's all of them. The wind can't get in now.",
                         "...Wait. What's that dripping sound? There are puddles everywhere!");
                 } else {
+                    game.audio.play("sfx_ding", 0.7f);
                     dialogue.say("That one's shut. " + (windows.size - closedCount()) + " more to go.");
                 }
+            } else {
+                game.audio.play("sfx_window_step");   // the window moves one step closer to closed
             }
         } else if (result == WindowMinigame.Result.FAIL) {
+            game.audio.play("sfx_gust");               // the wind pushes it open again
             fail(1, MISS[missIndex % MISS.length]);
             missIndex++;
         }
@@ -431,6 +445,7 @@ public class GameScreen implements Screen {
                 minigame.close();
             } else if (drawers.isOpen()) {
                 drawers.close();
+                game.audio.play("sfx_drawer_close");
             } else {
                 game.setScreen(new MainMenuScreen(game));
                 return;
@@ -446,6 +461,7 @@ public class GameScreen implements Screen {
         time += delta;
         lightning.update(delta);
         updateAudioMood();
+        updateTaskSounds(delta);
         viewport.apply();
         Vector2 mouse = viewport.unproject(new Vector2(Gdx.input.getX(), Gdx.input.getY()));
 
@@ -472,6 +488,7 @@ public class GameScreen implements Screen {
                 game.audio.play("sfx_zap");
                 game.audio.play("sfx_power_down");
                 game.audio.setMood(0.3f, 0.2f, 0f);
+                game.audio.setMusic(0f, 0f);
                 game.audio.setHorrorEvents(false);
                 game.audio.setHeartbeat(0f);
                 drawers.close();
@@ -483,10 +500,16 @@ public class GameScreen implements Screen {
             }
         }
 
-        // missed drops in the leak minigame: the fail effect
+        // leak minigame sounds: a drop falls, a drop lands in the bucket, a drop is missed
+        if (leakGame.takeSpawns() > 0) {
+            game.audio.play("sfx_drip", 0.5f, MathUtils.random(0.9f, 1.2f), 0f);   // a drop leaves the ceiling
+        }
+        if (leakGame.takeCatches() > 0) {
+            game.audio.play("sfx_plink", 0.9f, MathUtils.random(0.9f, 1.3f), 0f);  // a drop lands in the bucket
+        }
         int misses = leakGame.takeMisses();
         if (misses > 0) {
-            game.audio.play("sfx_drip");
+            game.audio.play("sfx_splash");
             fail(misses, SPILL[spillIndex % SPILL.length]);
             spillIndex++;
         }
@@ -502,6 +525,7 @@ public class GameScreen implements Screen {
                 dialogue.say("That's the last leak. The floor is finally safe.",
                     "The power could surge back any second! I have to unplug everything, fast!");
             } else {
+                game.audio.play("sfx_ding", 0.7f);
                 dialogue.say("Leak stopped. " + leaksLeft() + " more to go.");
             }
         }
@@ -509,7 +533,7 @@ public class GameScreen implements Screen {
         // pulled the plug too fast or too slow: the fail effect
         int plugFails = unplugGame.takeZaps();
         if (plugFails > 0) {
-            game.audio.play("sfx_zap");
+            game.audio.play("sfx_spark", 0.9f);   // a slight spark
             String[] lines = unplugGame.wasTooFast() ? TOO_FAST : TOO_SLOW;
             fail(plugFails, lines[plugIndex % lines.length]);
             plugIndex++;
@@ -519,12 +543,14 @@ public class GameScreen implements Screen {
         if (unplugGame.takeFinished()) {
             Device d = unplugGame.getTarget();
             if (d != null) d.setDone(true);
+            game.audio.play("sfx_unplug");
             if (devicesLeft() == 0) {
                 currentTask = Math.max(currentTask, 4);
                 gainChances();
                 dialogue.say("That's everything. No more sparks... for now.",
                     "Now I have to lock both main doors. One in the living room, one in the kitchen!");
             } else {
+                game.audio.play("sfx_ding", 0.7f);
                 dialogue.say("Unplugged. " + devicesLeft() + " more to go!");
             }
         }
@@ -537,6 +563,7 @@ public class GameScreen implements Screen {
         // wrong letter, too early or too slow on the lock: the fail effect
         int doorFails = doorGame.takeFails();
         if (doorFails > 0) {
+            game.audio.play("sfx_jam");
             String[] lines = doorGame.getFailReason() == DoorMinigame.FAIL_WRONG_KEY ? DOOR_WRONG
                 : doorGame.getFailReason() == DoorMinigame.FAIL_TOO_EARLY ? DOOR_EARLY : DOOR_SLOW;
             fail(doorFails, lines[doorIndex % lines.length]);
@@ -547,13 +574,15 @@ public class GameScreen implements Screen {
         if (doorGame.takeFinished()) {
             MainDoor d = doorGame.getTarget();
             if (d != null) d.setDone(true);
-            game.audio.play("sfx_lock");
+            game.audio.play("sfx_key_turn");      // the key turns...
+            game.audio.play("sfx_lock", 1f, 1f, 0f); // ...and the bolt clicks
             if (doorsLeft() == 0) {
                 currentTask = Math.max(currentTask, 5);
                 gainChances();
                 dialogue.say("Both doors are locked. Nothing is coming in that way.",
                     "...But I can hear rain water coming in under the door!");
             } else {
+                game.audio.play("sfx_ding", 0.7f);
                 dialogue.say("Door locked. " + doorsLeft() + " more to go!");
             }
         }
@@ -623,7 +652,10 @@ public class GameScreen implements Screen {
             boolean pressed = Gdx.input.justTouched() && overButton;
             if (pressed || Gdx.input.isKeyJustPressed(Input.Keys.SPACE)) onWindowPress();
         } else if (leakOpen || unplugOpen || doorOpen) {
-            // nothing to click here: the minigame reads the mouse and keys by itself
+            // the minigames read the mouse and keys by themselves; here we only add the door rattle sound
+            if (doorOpen && (Gdx.input.justTouched() || Gdx.input.isKeyJustPressed(Input.Keys.SPACE))) {
+                game.audio.play("sfx_rattle", 0.5f, MathUtils.random(0.8f, 1.25f), 0f);
+            }
         } else if (drawerOpen && !busy) {
             if (Gdx.input.justTouched()) {
                 if (hoverItem != null) {
@@ -631,6 +663,7 @@ public class GameScreen implements Screen {
                     if (grabbed != null) onGrab(grabbed, mouse.x, mouse.y);
                 } else if (!drawers.insidePanel(mouse.x, mouse.y)) {
                     drawers.close();
+                    game.audio.play("sfx_drawer_close");
                 }
             }
             if (drawers.isDragging()) {
@@ -641,7 +674,7 @@ public class GameScreen implements Screen {
             if (hs != null) {
                 if (hs.getAction() != null) {
                     drawers.open(hs.getAction().equals("drawer0") ? 0 : 1);
-                    game.audio.play("sfx_click");
+                    game.audio.play("sfx_drawer");   // the drawer slides open
                 } else {
                     goTo(hs.getTargetRoom());
                 }
@@ -778,7 +811,7 @@ public class GameScreen implements Screen {
 
     /**
      * The storm sound follows the story: rain and wind get loud while the windows are blown open,
-     * the horror drone grows as the chances run out, and a heartbeat starts when you are nearly caught.
+     * the horror drone and the scary music grow as the chances run out, and a heartbeat starts when you are nearly caught.
      */
     private void updateAudioMood() {
         boolean windowsOpen = windowsActive && closedCount() < windows.size;
@@ -787,7 +820,52 @@ public class GameScreen implements Screen {
         float danger = 1f - (float) chances / MAX_CHANCES;   // 0 = safe, 1 = about to be caught
         float drone = 0.3f + 0.5f * danger + (currentTask >= 3 ? 0.1f : 0f);
         game.audio.setMood(rain, wind, drone);
+        game.audio.setMusic(0f, 0.35f + 0.45f * danger);   // scary music: louder and louder as you get closer to losing
         game.audio.setHeartbeat(chances <= LOW_CHANCES ? 1f - (float) chances / (LOW_CHANCES + 1) : 0f);
+    }
+
+    /** Sounds that repeat by themselves during a task: howling wind, dripping puddles, crackling outlets. */
+    private void updateTaskSounds(float delta) {
+        // task 2: the wind howls through the open windows until you close every one
+        boolean windowsOpen = windowsActive && closedCount() < windows.size;
+        if (windowsOpen) {
+            howlTimer -= delta;
+            if (howlTimer <= 0f) {
+                howlTimer = MathUtils.random(5f, 9f);
+                game.audio.play("sfx_howl", MathUtils.random(0.55f, 0.85f), MathUtils.random(0.9f, 1.1f),
+                    MathUtils.random(-0.6f, 0.6f));
+            }
+        } else {
+            howlTimer = 1.5f;   // when the windows blow open, the first howl comes quickly
+        }
+
+        // task 3: the puddles drip. Loud in a room with a leak, faint from the other rooms.
+        if (currentTask == 2 && leaksLeft() > 0) {
+            dripTimer -= delta;
+            if (dripTimer <= 0f) {
+                dripTimer = MathUtils.random(0.6f, 1.5f);
+                Leak near = null;
+                for (Leak l : leaks) {
+                    if (!l.isDone() && l.getRoomId().equals(current.getId())) near = l;
+                }
+                float pitch = MathUtils.random(0.9f, 1.15f);
+                if (near != null) {
+                    float pan = MathUtils.clamp(near.getX() / Main.WORLD_WIDTH * 2f - 1f, -1f, 1f);
+                    game.audio.play("sfx_drip", 0.8f, pitch, pan);
+                } else {
+                    game.audio.play("sfx_drip", 0.22f, pitch, 0f);
+                }
+            }
+        }
+
+        // task 4: the wet outlet crackles while you try to unplug it
+        if (unplugGame.isActive()) {
+            crackleTimer -= delta;
+            if (crackleTimer <= 0f) {
+                crackleTimer = MathUtils.random(0.35f, 1.1f);
+                game.audio.play("sfx_spark", 0.18f, MathUtils.random(0.8f, 1.3f), MathUtils.random(-0.4f, 0.4f));
+            }
+        }
     }
 
     /** The lost-game screen. The jumpscare plays first if you ran out of chances. */

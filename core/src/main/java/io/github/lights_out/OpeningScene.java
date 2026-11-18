@@ -44,7 +44,7 @@ public class OpeningScene implements Screen {
         new Line("You", "It's so dark. I need to find the flashlight... maybe in the kitchen.", 2)
     };
 
-    private final Lightning lightning;   // flashes once the room is dark
+    private final Lightning lightning;   // flashes (with their sound) while the storm rages
 
     private int index = 0;
     private float charTimer = 0f;
@@ -56,6 +56,7 @@ public class OpeningScene implements Screen {
 
         // lights still on: just the storm outside, no horror yet
         game.audio.setMood(0.4f, 0.12f, 0f);
+        game.audio.setMusic(0.3f, 0f);          // soft, wrong-sounding music box
         game.audio.setHorrorEvents(false);
         game.audio.setHeartbeat(0f);
     }
@@ -67,8 +68,10 @@ public class OpeningScene implements Screen {
             game.audio.play("sfx_power_down");
             game.audio.thunder(0.9f);
             game.audio.setMood(0.4f, 0.12f, 0f);
+            game.audio.setMusic(0f, 0f);        // the music dies with the lights
         } else if (mode == 2) {                // dark room: the horror drone creeps in
             game.audio.setMood(0.6f, 0.35f, 0.55f);
+            game.audio.setMusic(0f, 0.45f);     // tense horror music creeps in
         }
     }
 
@@ -107,8 +110,8 @@ public class OpeningScene implements Screen {
         game.batch.setColor(Color.WHITE);
         game.batch.end();
 
-        // lightning flashes (only once the room is dark)
-        lightning.setEnabled(line.mode == 2);
+        // lightning flashes (with their sound), but not during the brownout itself
+        lightning.setEnabled(line.mode != 1);
         lightning.update(delta);
         lightning.draw(shapes, 0.45f);
 

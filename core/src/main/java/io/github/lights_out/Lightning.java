@@ -6,9 +6,9 @@ import com.badlogic.gdx.graphics.glutils.ShapeRenderer;
 import com.badlogic.gdx.math.MathUtils;
 
 /**
- * Random lightning. Each strike makes a flash on screen (getFlash / draw) and, a moment later,
- * a thunder clap. Sound is slower than light, so the thunder arrives after the flash:
- * a short delay means the storm is close, a long delay means it is far away.
+ * Random lightning. Each strike makes a flash on screen (getFlash / draw), a crack sound at the same
+ * moment, and a thunder clap a moment later. Sound is slower than light, so the thunder arrives after
+ * the flash: a short delay means the storm is close, a long delay means it is far away.
  */
 public class Lightning {
     private final SoundManager audio;
@@ -69,6 +69,7 @@ public class Lightning {
         wait = MathUtils.random(minWait, maxWait);
 
         float distance = MathUtils.random();              // 0 = right above the house, 1 = far away
+        audio.lightning(MathUtils.lerp(1f, 0.6f, distance));   // the crack happens WITH the flash
         thunderTimer = 0.08f + distance * 2.8f;
         thunderVolume = MathUtils.lerp(1f, 0.35f, distance);
         thunderPending = true;

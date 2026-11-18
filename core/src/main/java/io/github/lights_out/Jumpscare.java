@@ -12,7 +12,7 @@ import com.badlogic.gdx.math.MathUtils;
 public class Jumpscare {
     private static final String[] IMAGE_FILES = {"jumpscare_1.png", "jumpscare.png"}; // the first one that exists is used
 
-    private static final float PRE_DELAY = 0f;   // black screen before the scare
+    private static final float PRE_DELAY = 0.7f; // black screen before the scare (the sound builds up here, then the hit)
     private static final float SCARE_TIME = 1.9f;  // how long the face stays on screen
     private static final float FADE_TIME = 0.6f;   // fade to black at the end
     private static final float FLASH_TIME = 0.12f; // white flash at the start
@@ -66,7 +66,7 @@ public class Jumpscare {
     public void update(float delta) {
         if (!active) return;
         t += delta;
-        if (!soundPlayed && t >= PRE_DELAY) {
+        if (!soundPlayed) {   // the sound starts at once: first the rising dread, then the scream on the hit
             soundPlayed = true;
             if (sound != null) sound.play(1f);
         }

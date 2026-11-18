@@ -67,6 +67,8 @@ public class LeakMinigame {
     private float flash = 0f;
     private float time = 0f;
     private int missesPending = 0;
+    private int catchesPending = 0;   // drops that landed in the bucket (for the plink sound)
+    private int spawnsPending = 0;    // drops that just started falling (for the drip sound)
     private boolean finishedEvent = false;
 
     public LeakMinigame() {
@@ -98,6 +100,8 @@ public class LeakMinigame {
         tilt = 0f;
         flash = 0f;
         missesPending = 0;
+        catchesPending = 0;
+        spawnsPending = 0;
         falling.clear();
         splashes.clear();
     }
@@ -118,6 +122,20 @@ public class LeakMinigame {
         int m = missesPending;
         missesPending = 0;
         return m;
+    }
+
+    /** How many drops landed in the bucket since the last time this was asked. */
+    public int takeCatches() {
+        int c = catchesPending;
+        catchesPending = 0;
+        return c;
+    }
+
+    /** How many drops started to fall since the last time this was asked. */
+    public int takeSpawns() {
+        int s = spawnsPending;
+        spawnsPending = 0;
+        return s;
     }
 
     /** True once, when the 20th drop has been caught. */
@@ -141,6 +159,7 @@ public class LeakMinigame {
         d.y = DRIP_Y - d.h;                           // starts just under the ceiling
         d.speed = BASE_SPEED + SPEED_PER_CATCH * caught; // later drops fall faster
         falling.add(d);
+        spawnsPending++;
     }
 
     private void splash(float x, float y) {
@@ -213,6 +232,7 @@ public class LeakMinigame {
                 if (dx <= bw * MOUTH_HALF) {            // caught!
                     falling.removeIndex(i);
                     caught++;
+                    catchesPending++;
                     if (caught >= CATCHES_NEEDED) {
                         finishing = true;
                         finishTimer = FINISH_DELAY;

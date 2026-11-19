@@ -18,11 +18,16 @@ import java.util.Map;
 public class SoundManager {
     private static final String[] THUNDER = {"thunder_1.wav", "thunder_2.wav", "thunder_3.wav"};
     private static final String[] CREEPY = {"sfx_creak", "sfx_thump", "sfx_sting"};
-    private static final String[] LIGHTNING = {"sfx_lightning_1", "sfx_lightning_2"};
+    private static final String[] LIGHTNING = {"sfx_lightning_1", "sfx_lightning_2", "sfx_lightning_3"};
+    private static final String[] WHISPERS = {
+        "sfx_whisper_1", "sfx_whisper_2", "sfx_whisper_3", "sfx_whisper_4", "sfx_whisper_5"
+    };
     private static final String[] EFFECTS = {
         // general
         "sfx_power_down", "sfx_creak", "sfx_thump", "sfx_heartbeat", "sfx_sting", "sfx_click", "sfx_flashlight",
-        "sfx_bell", "sfx_ding", "sfx_lightning_1", "sfx_lightning_2",
+        "sfx_bell", "sfx_ding", "sfx_lightning_1", "sfx_lightning_2", "sfx_lightning_3",
+        // the entity whispering when you make a mistake
+        "sfx_whisper_1", "sfx_whisper_2", "sfx_whisper_3", "sfx_whisper_4", "sfx_whisper_5",
         // task 1: drawers and sharp things
         "sfx_drawer", "sfx_drawer_close", "sfx_clatter", "sfx_ouch", "sfx_cut", "sfx_hurt",
         // task 2: windows
@@ -39,7 +44,7 @@ public class SoundManager {
     private static final String[] LOOP_FILES = {
         "rain_loop.wav", "wind_loop.wav", "drone_loop.wav", "music_menu_loop.wav", "music_tense_loop.wav"
     };
-    private static final float[] LOOP_MAX = {0.45f, 0.8f, 0.7f, 0.85f, 0.85f};  // loudest each loop can get
+    private static final float[] LOOP_MAX = {0.9f, 0.8f, 0.7f, 0.85f, 0.85f};  // loudest each loop can get
     private static final float FADE_SPEED = 0.5f;                 // how fast volumes glide to their target (per second)
 
     private static final float CREEPY_MIN = 14f;                  // seconds between random creepy noises
@@ -58,6 +63,10 @@ public class SoundManager {
     private boolean horrorEvents = false;
     private float creepyTimer = MathUtils.random(CREEPY_MIN, CREEPY_MAX);
     private int lastThunder = -1;
+
+    private float whisperTimer = -1f;    // counts down to the whisper after a mistake (-1 = none waiting)
+    private float whisperVol = 0.7f;
+    private float clock = 0f;            // seconds since the game started (for slow changes in the rain)
 
     private float heartIntensity = 0f;   // 0 = no heartbeat, 1 = fast and loud
     private float heartTimer = 0f;
@@ -93,7 +102,7 @@ public class SoundManager {
         return found;
     }
 
-    /** Starts the rain, wind, drone and music loops (silent at first, they fade in). Safe to call many times. */
+    /** Starts the rain, wind and drone loops (silent at first, they fade in). Safe to call many times. */
     public void startAmbience() {
         if (ambienceOn) return;
         ambienceOn = true;
@@ -116,6 +125,22 @@ public class SoundManager {
     /** Turns the random creepy noises (creaks, thumps, a strange shimmer) on or off. */
     public void setHorrorEvents(boolean on) {
         horrorEvents = on;
+        if (!on) whisperTimer = -1f;   // no whisper after the game is over
+    }
+
+    /**
+     * The player made a mistake: a dull thud now, then a creepy whisper a moment later,
+     * as if the entity heard it. danger: 0 (safe) to 1 (almost caught). Whispers get louder with danger.
+     */
+    public void mistake(float danger) {
+        play("sfx_thump", 0.8f);
+        whisperTimer = MathUtils.random(0.3f, 0.9f);
+        whisperVol = 0.6f + 0.4f * MathUtils.clamp(danger, 0f, 1f);
+    }
+
+    private void whisper(float vol) {
+        Sound s = effects.get(WHISPERS[MathUtils.random(WHISPERS.length - 1)]);
+        if (s != null) s.play(vol * master, MathUtils.random(0.92f, 1.05f), MathUtils.random(-0.8f, 0.8f));   // from a random side
     }
 
     /** 0 = no heartbeat. Closer to 1 = faster and louder. */
@@ -165,12 +190,28 @@ public class SoundManager {
 
     /** Call once per frame (Main does it). */
     public void update(float delta) {
+        clock += delta;
+
         // glide each loop toward its target volume
         for (int i = 0; i < loops.length; i++) {
+            // watchdog: if a loop ever stops by itself, start it again, so the storm never goes quiet
+            if (ambienceOn && loops[i] != null && !loops[i].isPlaying()) loops[i].play();
+
             float step = FADE_SPEED * delta;
             if (volume[i] < target[i]) volume[i] = Math.min(target[i], volume[i] + step);
             else volume[i] = Math.max(target[i], volume[i] - step);
-            if (loops[i] != null) loops[i].setVolume(volume[i] * LOOP_MAX[i] * master);
+            // the rain slowly gets a little louder and softer, so it never sounds like a repeating recording
+            float drift = (i == 0) ? 0.93f + 0.07f * MathUtils.sin(clock * 0.13f) + 0.04f * MathUtils.sin(clock * 0.047f) : 1f;
+            if (loops[i] != null) loops[i].setVolume(volume[i] * LOOP_MAX[i] * drift * master);
+        }
+
+        // the whisper that follows a mistake
+        if (whisperTimer >= 0f) {
+            whisperTimer -= delta;
+            if (whisperTimer < 0f) {
+                whisperTimer = -1f;
+                whisper(whisperVol);
+            }
         }
 
         // random creepy noises

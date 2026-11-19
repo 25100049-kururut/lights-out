@@ -290,7 +290,7 @@ public class GameScreen implements Screen {
     private void fail(int count, String line) {
         mistakes += count;
         chances = Math.max(0, chances - count);
-        game.audio.play("sfx_thump", 0.8f);   // a dull thud somewhere in the house
+        game.audio.mistake(1f - (float) chances / MAX_CHANCES);   // a thud, then the entity whispers
 
         if (chances <= 0) {
             startJumpscare();

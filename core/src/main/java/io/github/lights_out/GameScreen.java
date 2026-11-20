@@ -97,6 +97,21 @@ public class GameScreen implements Screen {
         "Come on, faster! The lock is loosening!"
     };
 
+    // What you say when the cloth slips off the line or skips a spot (task 6)
+    private static final String[] TOWEL_OUTSIDE = {
+        "No! The water slipped past the cloth!",
+        "Stay on the gap! It's leaking through!",
+        "Careful... the cloth moved off the line!"
+    };
+    private static final String[] TOWEL_SKIPPED = {
+        "I missed a spot! Water is getting through!",
+        "Too sloppy! There's still a hole there!",
+        "Slow down... I skipped part of the gap!"
+    };
+
+    // Where the cloth lies in storage room 1 (centre x, centre y, width), and how big its click area is
+    private static final float CLOTH_X = 733f, CLOTH_Y = 160f, CLOTH_W = 150f;
+
     private final Main game;
     private final FitViewport viewport = new FitViewport(Main.WORLD_WIDTH, Main.WORLD_HEIGHT);
     private final ShapeRenderer shapes = new ShapeRenderer();
@@ -122,6 +137,10 @@ public class GameScreen implements Screen {
     private final DoorMinigame doorGame = new DoorMinigame();
     private final Array<MainDoor> doors = new Array<>();
 
+    private final TowelMinigame towelGame = new TowelMinigame();
+    private final Array<SeepDoor> seepDoors = new Array<>();
+    private boolean hasCloth = false;      // the cloth from the storage room (task 6)
+
     private boolean gameOver = false;
     private float gameOverTimer = 0f;
     private String gameOverTitle = "THE POWER CAME BACK";
@@ -146,6 +165,7 @@ public class GameScreen implements Screen {
     private int spillIndex = 0;
     private int plugIndex = 0;
     private int doorIndex = 0;
+    private int towelIndex = 0;
 
     // timers for the sounds that repeat on their own
     private float howlTimer = 1.5f;     // wind howling while windows are open
@@ -182,6 +202,10 @@ public class GameScreen implements Screen {
         }
         if (startTask >= 5) {
             for (MainDoor d : doors) d.setDone(true);
+        }
+        if (startTask >= 6) {
+            hasCloth = true;
+            for (SeepDoor d : seepDoors) d.setDone(true);
         }
 
         current = rooms.get("bedroom");
@@ -255,6 +279,10 @@ public class GameScreen implements Screen {
         // The main doors to lock: room, name, then the click area in the 1920x953 room picture
         doors.add(MainDoor.fromImage("living", "front door", 380, 294, 575, 585));
         doors.add(MainDoor.fromImage("kitchen", "back door", 1274, 267, 1476, 530));
+
+        // The doors the rain water seeps under (task 6): the same two doors, room, name, then the door in the room picture
+        seepDoors.add(SeepDoor.fromImage("living", "front door", 380, 294, 575, 585));
+        seepDoors.add(SeepDoor.fromImage("kitchen", "back door", 1274, 267, 1476, 530));
     }
 
     private void goTo(String roomId) {
@@ -283,6 +311,12 @@ public class GameScreen implements Screen {
     private int doorsLeft() {
         int n = 0;
         for (MainDoor d : doors) if (!d.isDone()) n++;
+        return n;
+    }
+
+    private int seepLeft() {
+        int n = 0;
+        for (SeepDoor d : seepDoors) if (!d.isDone()) n++;
         return n;
     }
 
@@ -321,6 +355,7 @@ public class GameScreen implements Screen {
         leakGame.close();
         unplugGame.close();
         doorGame.close();
+        towelGame.close();
         game.audio.setMood(0.1f, 0.05f, 0f);   // the storm goes quiet: only the scream (jumpscare.wav)
         game.audio.setMusic(0f, 0f);
         game.audio.setHorrorEvents(false);
@@ -368,6 +403,21 @@ public class GameScreen implements Screen {
             if (d.getRoomId().equals(current.getId()) && d.contains(x, y)) return d;
         }
         return null;
+    }
+
+    /** A seeping door of the current room under the mouse, once the rain water task has started. */
+    private SeepDoor seepAt(float x, float y) {
+        if (currentTask < 5 || !hasCloth) return null;   // not clickable until the cloth is picked up
+        for (SeepDoor d : seepDoors) {
+            if (d.getRoomId().equals(current.getId()) && d.contains(x, y)) return d;
+        }
+        return null;
+    }
+
+    /** True if the mouse is over the cloth in storage room 1 (until it is picked up). */
+    private boolean clothAt(float x, float y) {
+        if (currentTask < 5 || hasCloth || !current.getId().equals("storage1")) return false;
+        return Math.abs(x - CLOTH_X) <= CLOTH_W / 2f + 10f && Math.abs(y - CLOTH_Y) <= 55f;
     }
 
     /** The player grabbed an item inside a drawer. */
@@ -435,7 +485,9 @@ public class GameScreen implements Screen {
     public void render(float delta) {
         // ESC closes the minigame or the drawer first, otherwise goes back to the menu
         if (Gdx.input.isKeyJustPressed(Input.Keys.ESCAPE)) {
-            if (doorGame.isActive()) {
+            if (towelGame.isActive()) {
+                towelGame.close();
+            } else if (doorGame.isActive()) {
                 doorGame.close();
             } else if (unplugGame.isActive()) {
                 unplugGame.close();
@@ -471,6 +523,7 @@ public class GameScreen implements Screen {
         leakGame.update(delta, mouse.x);
         unplugGame.update(delta, mouse.x, mouse.y, Gdx.input.justTouched(), Gdx.input.isTouched());
         doorGame.update(delta, Gdx.input.justTouched());
+        towelGame.update(delta, mouse.x, mouse.y, Gdx.input.justTouched(), Gdx.input.isTouched());
         for (GameWindow w : windows) w.update(delta);
         if (flashlightFound && lightLevel < 1f) {
             lightLevel = Math.min(1f, lightLevel + delta * LIGHT_SPEED);
@@ -587,6 +640,31 @@ public class GameScreen implements Screen {
             }
         }
 
+        // the cloth slipped off the line or skipped a spot: the fail effect
+        int towelFails = towelGame.takeFails();
+        if (towelFails > 0) {
+            game.audio.play("sfx_splash", 0.8f);
+            String[] lines = towelGame.getFailReason() == TowelMinigame.FAIL_OUTSIDE ? TOWEL_OUTSIDE : TOWEL_SKIPPED;
+            fail(towelFails, lines[towelIndex % lines.length]);
+            towelIndex++;
+        }
+
+        // the gap is covered: this door is sealed
+        if (towelGame.takeFinished()) {
+            SeepDoor d = towelGame.getTarget();
+            if (d != null) d.setDone(true);
+            game.audio.play("sfx_shut", 0.6f);
+            if (seepLeft() == 0) {
+                currentTask = Math.max(currentTask, 6);
+                gainChances();
+                dialogue.say("Both doors are sealed. The water has stopped coming in.",
+                    "...I should store the emergency kit before anything else happens.");
+            } else {
+                game.audio.play("sfx_ding", 0.7f);
+                dialogue.say("Sealed! " + seepLeft() + " more to go.");
+            }
+        }
+
         // a mistake used up the last chance: the jumpscare starts
         if (gameOver) {
             renderGameOver(delta);
@@ -612,7 +690,9 @@ public class GameScreen implements Screen {
         boolean leakOpen = leakGame.isActive();
         boolean unplugOpen = unplugGame.isActive();
         boolean doorOpen = doorGame.isActive();
-        boolean roomActive = !busy && !drawerOpen && !windowOpen && !leakOpen && !unplugOpen && !doorOpen;
+        boolean towelOpen = towelGame.isActive();
+        boolean roomActive = !busy && !drawerOpen && !windowOpen && !leakOpen && !unplugOpen && !doorOpen
+            && !towelOpen;
 
         boolean inside = mouse.x >= 0 && mouse.x <= Main.WORLD_WIDTH
             && mouse.y >= 0 && mouse.y <= Main.WORLD_HEIGHT;
@@ -624,6 +704,8 @@ public class GameScreen implements Screen {
         Leak hoverLeak = free ? leakAt(mouse.x, mouse.y) : null;
         Device hoverDevice = free ? deviceAt(mouse.x, mouse.y) : null;
         MainDoor hoverDoor = free ? doorAt(mouse.x, mouse.y) : null;
+        SeepDoor hoverSeep = free ? seepAt(mouse.x, mouse.y) : null;
+        boolean hoverCloth = free && clothAt(mouse.x, mouse.y);
         boolean overLeft = roomActive && inside && current.getLeftTarget() != null && mouse.x < EDGE_ZONE;
         boolean overRight = roomActive && inside && current.getRightTarget() != null
             && mouse.x > Main.WORLD_WIDTH - EDGE_ZONE;
@@ -640,9 +722,11 @@ public class GameScreen implements Screen {
         boolean overPuddle = hoverLeak != null && !hoverLeak.isDone();
         boolean overPlugged = hoverDevice != null && !hoverDevice.isDone();
         boolean overUnlocked = hoverDoor != null && !hoverDoor.isDone();
+        boolean overSeep = hoverSeep != null && !hoverSeep.isDone();
         boolean overPlug = unplugOpen && (unplugGame.isGrabbed() || unplugGame.isOverPlug(mouse.x, mouse.y));
         Gdx.graphics.setSystemCursor(
             (hs != null || openWindow != null || overPuddle || overPlugged || overUnlocked || overLeft || overRight
+                || overSeep || hoverCloth || towelOpen
                 || hoverItem != null || drawers.isDragging() || overButton || overPlug)
                 ? Cursor.SystemCursor.Hand
                 : Cursor.SystemCursor.Arrow);
@@ -651,7 +735,7 @@ public class GameScreen implements Screen {
         if (windowOpen && !busy) {
             boolean pressed = Gdx.input.justTouched() && overButton;
             if (pressed || Gdx.input.isKeyJustPressed(Input.Keys.SPACE)) onWindowPress();
-        } else if (leakOpen || unplugOpen || doorOpen) {
+        } else if (leakOpen || unplugOpen || doorOpen || towelOpen) {
             // the minigames read the mouse and keys by themselves; here we only add the door rattle sound
             if (doorOpen && (Gdx.input.justTouched() || Gdx.input.isKeyJustPressed(Input.Keys.SPACE))) {
                 game.audio.play("sfx_rattle", 0.5f, MathUtils.random(0.8f, 1.25f), 0f);
@@ -688,6 +772,16 @@ public class GameScreen implements Screen {
             } else if (hoverDevice != null) {
                 if (hoverDevice.isDone()) dialogue.say("The " + hoverDevice.getName() + " is already unplugged.");
                 else unplugGame.open(hoverDevice);
+            } else if (hoverSeep != null) {
+                if (hoverSeep.isDone()) dialogue.say("The " + hoverSeep.getName() + " is already sealed.");
+                else if (!hasCloth) dialogue.say("Water is pouring in under the " + hoverSeep.getName() + "!",
+                    "I need something to block the gap... a cloth! Maybe in the storage room.");
+                else towelGame.open(hoverSeep);
+            } else if (hoverCloth) {
+                hasCloth = true;
+                game.audio.play("sfx_pickup");
+                dialogue.say("A thick cloth. This should block the gap.",
+                    "Now to seal both doors before the water floods the house!");
             } else if (hoverDoor != null) {
                 if (hoverDoor.isDone()) dialogue.say("The " + hoverDoor.getName() + " is already locked.");
                 else doorGame.open(hoverDoor);
@@ -722,6 +816,11 @@ public class GameScreen implements Screen {
                 else leakGame.drawPuddle(game.batch, l, b, time);
             }
         }
+
+        // task 6: the cloth waits in storage room 1 (the doors only get the droplet mark, see drawSeepMarks)
+        if (currentTask >= 5 && !hasCloth && current.getId().equals("storage1")) {
+            towelGame.drawFloorCloth(game.batch, CLOTH_X, CLOTH_Y, CLOTH_W, b);
+        }
         game.batch.setColor(Color.WHITE);
         game.batch.end();
 
@@ -731,9 +830,10 @@ public class GameScreen implements Screen {
         // small marks on the devices and outlets: yellow sparks = still plugged in, green = unplugged
         if (currentTask >= 3) drawDeviceMarks();
         if (currentTask >= 4) drawDoorMarks();
+        if (currentTask >= 5) drawSeepMarks();
 
         // edge shadows (and faint light) on the sides that lead somewhere
-        if (!drawerOpen && !windowOpen && !leakOpen && !unplugOpen && !doorOpen) {
+        if (!drawerOpen && !windowOpen && !leakOpen && !unplugOpen && !doorOpen && !towelOpen) {
             if (current.getLeftTarget() != null) drawEdgeShade(true, leftReveal);
             if (current.getRightTarget() != null) drawEdgeShade(false, rightReveal);
         }
@@ -758,6 +858,7 @@ public class GameScreen implements Screen {
         leakGame.render(game.batch, game.font);
         unplugGame.render(game.batch, game.font);
         doorGame.render(game.batch, game.font);
+        towelGame.render(game.batch, game.font);
 
         // the surge meter (always on top, even inside a minigame)
         drawSurgeMeter();
@@ -780,6 +881,8 @@ public class GameScreen implements Screen {
         else if (currentTask == 2) info = "Leaks stopped: " + (leaks.size - leaksLeft()) + " of " + leaks.size;
         else if (currentTask == 3) info = "Devices unplugged: " + (devices.size - devicesLeft()) + " of " + devices.size;
         else if (currentTask == 4) info = "Doors locked: " + (doors.size - doorsLeft()) + " of " + doors.size;
+        else if (currentTask == 5) info = hasCloth ? "Doors sealed: " + (seepDoors.size - seepLeft()) + " of " + seepDoors.size
+            : "find a cloth in the storage room";
         else info = OBJECTIVE_INFO[currentTask];
         game.font.getData().setScale(1.2f);
         game.font.setColor(0.85f, 0.85f, 0.85f, 1f);
@@ -988,6 +1091,33 @@ public class GameScreen implements Screen {
         shapes.end();
     }
 
+    /**
+     * Small water-drop marks above the doors the rain water seeps under: blue = still leaking, green = sealed.
+     * A yellow mark also shows where the cloth is, until you pick it up.
+     */
+    private void drawSeepMarks() {
+        shapes.begin(ShapeRenderer.ShapeType.Filled);
+        for (SeepDoor d : seepDoors) {
+            if (!d.getRoomId().equals(current.getId())) continue;
+            Rectangle r = d.getRect();
+            float cx = r.x + r.width / 2f;
+            float cy = r.y + r.height + 20f;   // above the door (the lock mark sits just below)
+            if (d.isDone()) {
+                shapes.setColor(0.2f, 0.85f, 0.35f, 0.9f);
+            } else {
+                float a = 0.5f + 0.5f * Math.max(0f, MathUtils.sin(time * 7f + cx));
+                shapes.setColor(0.3f, 0.7f, 1f, a);
+            }
+            shapes.circle(cx, cy + 22f, 8f);
+            shapes.triangle(cx - 7.5f, cy + 25f, cx + 7.5f, cy + 25f, cx, cy + 42f);   // the tip of the drop
+        }
+        if (!hasCloth && current.getId().equals("storage1")) {
+            setMarkColor(false, CLOTH_X);
+            shapes.circle(CLOTH_X, CLOTH_Y + 58f, 7f);
+        }
+        shapes.end();
+    }
+
     private void setMarkColor(boolean done, float seed) {
         if (done) {
             shapes.setColor(0.2f, 0.85f, 0.35f, 0.9f);
@@ -1054,6 +1184,7 @@ public class GameScreen implements Screen {
         leakGame.dispose();
         unplugGame.dispose();
         doorGame.dispose();
+        towelGame.dispose();
         jumpscare.dispose();
         shapes.dispose();
     }

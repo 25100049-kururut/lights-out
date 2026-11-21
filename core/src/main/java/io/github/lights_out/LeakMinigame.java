@@ -11,7 +11,7 @@ import com.badlogic.gdx.utils.Array;
 
 /** The "move the bucket and catch the water drops" minigame for stopping a leak. */
 public class LeakMinigame {
-    public static final int CATCHES_NEEDED = 20;   // drops to catch for one puddle
+    public static final int CATCHES_NEEDED = 10;   // drops to catch for one puddle
 
     // Play area (world units)
     private static final float FIELD_X0 = 250f, FIELD_X1 = 1030f;
@@ -34,7 +34,7 @@ public class LeakMinigame {
     private static final float SPAWN_FASTER = 0.02f;   // new drops come this much sooner after every catch
 
     private static final float FLASH_TIME = 0.4f;      // red flash after a miss
-    private static final float FINISH_DELAY = 1.3f;    // pause after the 20th catch
+    private static final float FINISH_DELAY = 1.3f;    // pause after the last catch
 
     private static class Drop {
         Texture tex;
@@ -138,7 +138,7 @@ public class LeakMinigame {
         return s;
     }
 
-    /** True once, when the 20th drop has been caught. */
+    /** True once, when the last drop has been caught. */
     public boolean takeFinished() {
         boolean f = finishedEvent;
         finishedEvent = false;

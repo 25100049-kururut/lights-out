@@ -29,10 +29,10 @@ public class GameScreen implements Screen {
     private static final float LIGHT_SPEED = 0.5f;     // how fast the rooms get lighter
 
     private static final int START_OPEN = 4;           // how open the windows start (4 = wide open = 4 hits each)
-    private static final float SURGE_TIME = 120f;      // seconds for the surge meter to fill (then you lose)
-
     private static final int MAX_CHANCES = 10;         // how many mistakes you can make before the jumpscare (hidden from the player)
     private static final int CHANCES_PER_TASK = 2;     // chances you get back when you finish a task
+    private static final float TASK_TIME = 90f;        // seconds you get to finish a whole task, counted from the moment the task starts (then the jumpscare). Hidden from the player.
+    private static final float DREAD_START = 0.5f;     // share of the time used when the heartbeat and the red darkness start (0.5 = after 45 s)
     private static final int LOW_CHANCES = 3;          // at this many chances or fewer, the warnings start
 
     private static final float FLASH_BRIGHTNESS = 0.5f; // how bright the brightest lightning flash is (0 to 1)
@@ -132,7 +132,6 @@ public class GameScreen implements Screen {
 
     private final UnplugMinigame unplugGame = new UnplugMinigame();
     private final Array<Device> devices = new Array<>();
-    private float surge = 0f;          // 0 = empty, 1 = full (you lose)
 
     private final DoorMinigame doorGame = new DoorMinigame();
     private final Array<MainDoor> doors = new Array<>();
@@ -144,7 +143,7 @@ public class GameScreen implements Screen {
     private boolean gameOver = false;
     private float gameOverTimer = 0f;
     private String gameOverTitle = "THE POWER CAME BACK";
-    private String gameOverText = "The surge was too strong. You lost.";
+    private String gameOverText = "You lost.";
 
     private Room current;
     private String pendingRoom = null;
@@ -166,6 +165,12 @@ public class GameScreen implements Screen {
     private int plugIndex = 0;
     private int doorIndex = 0;
     private int towelIndex = 0;
+
+    // hidden task clock: starts when a task starts (windows, leaks, plugs, doors, seeps) and keeps running until it is finished
+    private int clockTask = -1;        // the task the clock is counting for
+    private float taskClock = 0f;      // seconds since that task started
+    private float timerDanger = 0f;    // 0 = plenty of time, 1 = time is up
+    private float dreadBeat = 0f;      // beat of the dark red pulse
 
     // timers for the sounds that repeat on their own
     private float howlTimer = 1.5f;     // wind howling while windows are open
@@ -349,6 +354,27 @@ public class GameScreen implements Screen {
         startJumpscare("IT FOUND YOU", "You made too many mistakes. It heard every one.");
     }
 
+    /**
+     * The hidden clock. It starts the moment a task starts (the objective changes) and runs the whole time,
+     * inside and outside the minigames, until the task is finished. At TASK_TIME seconds: jumpscare.
+     * Only the tasks that have minigames are timed (windows, leaks, plugs, doors, seeps).
+     */
+    private void updateTaskClock(float delta) {
+        if (currentTask != clockTask) {   // a new task just started: the clock starts from 0
+            clockTask = currentTask;
+            taskClock = 0f;
+        }
+        timerDanger = 0f;
+        if (currentTask < 1 || currentTask > 5) return;
+
+        taskClock += delta;
+        timerDanger = Math.min(1f, taskClock / TASK_TIME);
+        if (taskClock >= TASK_TIME) {
+            taskClock = 0f;
+            startJumpscare("TIME RAN OUT", "You took too long. It found you.");
+        }
+    }
+
     private void startJumpscare(String title, String text) {
         drawers.close();
         minigame.close();
@@ -504,7 +530,7 @@ public class GameScreen implements Screen {
             }
         }
 
-        // the game is lost (jumpscare or surge)
+        // the game is lost (jumpscare)
         if (gameOver) {
             renderGameOver(delta);
             return;
@@ -529,30 +555,6 @@ public class GameScreen implements Screen {
             lightLevel = Math.min(1f, lightLevel + delta * LIGHT_SPEED);
         }
 
-        // the surge meter fills while the unplug task is going
-        if (currentTask == 3) {
-            surge += delta / SURGE_TIME;
-            if (surge >= 1f) {
-                surge = 1f;
-                gameOver = true;
-                gameOverTimer = 0f;
-                gameOverTitle = "THE POWER CAME BACK";
-                gameOverText = "The surge was too strong. You lost.";
-                game.audio.play("sfx_zap");
-                game.audio.play("sfx_power_down");
-                game.audio.setMood(0.3f, 0.2f, 0f);
-                game.audio.setMusic(0f, 0f);
-                game.audio.setHorrorEvents(false);
-                game.audio.setHeartbeat(0f);
-                drawers.close();
-                minigame.close();
-                leakGame.close();
-                unplugGame.close();
-                doorGame.close();
-                return;
-            }
-        }
-
         // leak minigame sounds: a drop falls, a drop lands in the bucket, a drop is missed
         if (leakGame.takeSpawns() > 0) {
             game.audio.play("sfx_drip", 0.5f, MathUtils.random(0.9f, 1.2f), 0f);   // a drop leaves the ceiling
@@ -573,7 +575,6 @@ public class GameScreen implements Screen {
             if (l != null) l.setDone(true);
             if (leaksLeft() == 0) {
                 currentTask = Math.max(currentTask, 3);
-                surge = 0f;
                 gainChances();
                 dialogue.say("That's the last leak. The floor is finally safe.",
                     "The power could surge back any second! I have to unplug everything, fast!");
@@ -664,6 +665,9 @@ public class GameScreen implements Screen {
                 dialogue.say("Sealed! " + seepLeft() + " more to go.");
             }
         }
+
+        // the hidden task clock: when it reaches 90 seconds, the jumpscare starts
+        updateTaskClock(delta);
 
         // a mistake used up the last chance: the jumpscare starts
         if (gameOver) {
@@ -860,8 +864,8 @@ public class GameScreen implements Screen {
         doorGame.render(game.batch, game.font);
         towelGame.render(game.batch, game.font);
 
-        // the surge meter (always on top, even inside a minigame)
-        drawSurgeMeter();
+        // running out of time: darker, redder and pulsing (on top of everything)
+        drawTimerDread(delta);
 
         // text
         game.batch.begin();
@@ -893,18 +897,6 @@ public class GameScreen implements Screen {
         game.font.draw(game.batch, "Task " + (currentTask + 1) + " of 8   |   "
             + current.getDisplayName() + "   |   ESC = menu", 30, 630);
 
-        // labels of the surge meter
-        if (currentTask == 3) {
-            float meterCenter = 1210f + 17f;
-            game.font.getData().setScale(1.3f);
-            game.font.setColor(surge > 0.75f ? Color.RED : Color.WHITE);
-            layout.setText(game.font, "SURGE");
-            game.font.draw(game.batch, "SURGE", meterCenter - layout.width / 2f, 600f);
-            String pct = (int) (surge * 100f) + "%";
-            layout.setText(game.font, pct);
-            game.font.draw(game.batch, pct, meterCenter - layout.width / 2f, 150f);
-        }
-
         game.font.getData().setScale(1f);
         game.font.setColor(Color.WHITE);
         dialogue.render(game.batch, game.font);
@@ -924,7 +916,9 @@ public class GameScreen implements Screen {
         float drone = 0.3f + 0.5f * danger + (currentTask >= 3 ? 0.1f : 0f);
         game.audio.setMood(rain, wind, drone);
         game.audio.setMusic(0f, 0.35f + 0.45f * danger);   // scary music: louder and louder as you get closer to losing
-        game.audio.setHeartbeat(chances <= LOW_CHANCES ? 1f - (float) chances / (LOW_CHANCES + 1) : 0f);
+        float chanceBeat = chances <= LOW_CHANCES ? 1f - (float) chances / (LOW_CHANCES + 1) : 0f;
+        float timeBeat = timerDanger > DREAD_START ? 0.2f + 0.8f * dreadLevel() : 0f;   // the less time, the faster it beats
+        game.audio.setHeartbeat(Math.max(chanceBeat, timeBeat));
     }
 
     /** Sounds that repeat by themselves during a task: howling wind, dripping puddles, crackling outlets. */
@@ -1021,6 +1015,42 @@ public class GameScreen implements Screen {
         }
     }
 
+    /** 0 when the dread starts (half of the time used), 1 when the time is up. */
+    private float dreadLevel() {
+        return MathUtils.clamp((timerDanger - DREAD_START) / (1f - DREAD_START), 0f, 1f);
+    }
+
+    /** The screen gets darker and redder, and pulses at the speed of the heartbeat, as the time for the task runs out. */
+    private void drawTimerDread(float delta) {
+        float t = dreadLevel();
+        if (t <= 0f) {
+            dreadBeat = 0f;
+            return;
+        }
+        float interval = 1.15f - 0.55f * (0.2f + 0.8f * t);   // same speed as the heartbeat sound
+        dreadBeat += delta / interval;
+        float pulse = (float) Math.pow(1f - (dreadBeat % 1f), 3f);   // a thump that fades out
+
+        float W = Main.WORLD_WIDTH, H = Main.WORLD_HEIGHT;
+        float edge = 0.35f + 0.5f * t;
+        float a = Math.min(1f, edge * (0.75f + 0.25f * pulse));
+        float w = 260f + 160f * t;
+        Color dark = new Color(0.4f, 0f, 0f, a);
+        Color clear = new Color(0.4f, 0f, 0f, 0f);
+
+        Gdx.gl.glEnable(GL20.GL_BLEND);
+        shapes.begin(ShapeRenderer.ShapeType.Filled);
+        shapes.setColor(0.05f, 0f, 0f, 0.4f * t);                                // everything gets darker
+        shapes.rect(0, 0, W, H);
+        shapes.setColor(0.5f, 0f, 0f, 0.16f * t * pulse);                        // a red flush on every beat
+        shapes.rect(0, 0, W, H);
+        shapes.rect(0, 0, w, H, dark, clear, clear, dark);                       // red edges
+        shapes.rect(W - w, 0, w, H, clear, dark, dark, clear);
+        shapes.rect(0, H - w, W, w, clear, clear, dark, dark);
+        shapes.rect(0, 0, W, w, dark, dark, clear, clear);
+        shapes.end();
+    }
+
     /** Dark red edges that grow stronger as the chances run out. */
     private void drawVignette() {
         float strength = (1f - (float) chances / MAX_CHANCES) * 0.55f;
@@ -1037,22 +1067,6 @@ public class GameScreen implements Screen {
         shapes.rect(W - w, 0, w, H, clear, dark, dark, clear);      // right
         shapes.rect(0, H - w, W, w, clear, clear, dark, dark);      // top
         shapes.rect(0, 0, W, w, dark, dark, clear, clear);          // bottom
-        shapes.end();
-    }
-
-    /** The surge meter on the right side of the screen. */
-    private void drawSurgeMeter() {
-        if (currentTask != 3) return;
-        float x = 1210f, y = 170f, w = 34f, h = 380f;
-        float pulse = surge > 0.75f ? 0.5f + 0.5f * MathUtils.sin(time * 10f) : 0f;
-
-        shapes.begin(ShapeRenderer.ShapeType.Filled);
-        shapes.setColor(0.35f + 0.65f * pulse, 0.3f * (1f - pulse), 0.3f * (1f - pulse), 1f);
-        shapes.rect(x - 4, y - 4, w + 8, h + 8);
-        shapes.setColor(0.05f, 0.05f, 0.07f, 1f);
-        shapes.rect(x, y, w, h);
-        shapes.setColor(1f, MathUtils.lerp(0.85f, 0.1f, surge), 0.1f, 1f);
-        shapes.rect(x, y, w, h * surge);
         shapes.end();
     }
 
